@@ -1,12 +1,12 @@
-# TeamFloPay War Room
+# Flo War Room
 
-War Room is the local command center for TeamFloPay cross-repo work. It owns the operating layer around repositories: repo maps, company-level agent rules, local-only orchestration, issue/PR workflow helpers, and future intelligence/reporting contracts.
+War Room is the local command center for Flo cross-repo work. It owns the operating layer around repositories: repo maps, company-level agent rules, local-only orchestration, issue/PR workflow helpers, and future intelligence/reporting contracts.
 
 It does not own product source code. Product code remains in the child repositories that build, test, deploy, and publish independently.
 
 ## Current Phase
 
-This repository starts with the phase-1 foundation from TeamFloPay/infra#11:
+This repository starts with the phase-1 foundation from [TeamFloPay/infra#11](https://github.com/TeamFloPay/infra/issues/11):
 
 - private `TeamFloPay/warroom` repository
 - company-level `AGENTS.md`

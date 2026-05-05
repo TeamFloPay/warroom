@@ -66,7 +66,7 @@ warroom pr review --help
 
 `warroom issue create` and `warroom issue fortify` are explicit post-MVP placeholders tracked by TeamFloPay/infra#7.
 
-`warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs. `pr engage --confirm-status` moves the issue to `battlefield-active`; `pr review --issue ... --confirm-status` moves it to `skirmish`; `pr merge --issue ... --confirm-status` moves it to `victory`. Full code-writing automation remains human-directed through the launched adapter.
+`warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs. `pr review` includes PR files, comments, latest reviews, and check state in the handoff. `pr engage --confirm-status` moves the issue to `battlefield-active`; `pr review --issue ... --confirm-status` moves it to `skirmish`; `pr merge --issue ... --confirm-status` moves it to `victory`. Full code-writing automation remains human-directed through the launched adapter.
 
 `warroom commit create` inspects a mapped child repo, proposes a conventional commit message, and refuses to proceed when other child repos are dirty.
 

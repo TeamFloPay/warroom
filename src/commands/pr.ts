@@ -41,6 +41,12 @@ function truncateText(value: string | undefined, limit = 6000) {
   return `${value.slice(0, limit)}\n\n[Truncated by War Room to keep the handoff scoped. Re-run with direct GitHub inspection if more context is needed.]`;
 }
 
+function summarizeList<T>(values: T[] | undefined, map: (value: T) => string, limit = 12) {
+  const rows = (values ?? []).slice(0, limit).map(map);
+  if ((values ?? []).length > limit) rows.push(`[${(values ?? []).length - limit} more omitted]`);
+  return rows.length ? rows.join('\n') : 'none';
+}
+
 export function runPrEngage(workspaceRoot: string, options: PrOptions): PrPlanResult {
   if (!options.issue) throw new Error('warroom pr engage requires --issue owner/repo#number.');
   const ref = parseIssueRef(options.issue);
@@ -81,10 +87,45 @@ export function runPrEngage(workspaceRoot: string, options: PrOptions): PrPlanRe
 export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanResult {
   if (!options.pr) throw new Error('warroom pr review requires --pr owner/repo#number.');
   const ref = parsePrRef(options.pr);
-  const pr = ghJson<{ title?: string; body?: string; url?: string; headRefName?: string; baseRefName?: string }>(
-    ['pr', 'view', String(ref.number), '--repo', ref.repo, '--json', 'title,body,url,headRefName,baseRefName'],
+  const pr = ghJson<{
+    title?: string;
+    body?: string;
+    url?: string;
+    headRefName?: string;
+    baseRefName?: string;
+    files?: Array<{ path?: string; additions?: number; deletions?: number }>;
+    comments?: Array<{ author?: { login?: string }; body?: string; createdAt?: string }>;
+    latestReviews?: Array<{ author?: { login?: string }; state?: string; body?: string; submittedAt?: string }>;
+    statusCheckRollup?: Array<{ name?: string; status?: string; conclusion?: string; workflowName?: string }>;
+  }>(
+    [
+      'pr',
+      'view',
+      String(ref.number),
+      '--repo',
+      ref.repo,
+      '--json',
+      'title,body,url,headRefName,baseRefName,files,comments,latestReviews,statusCheckRollup',
+    ],
     {}
   );
+  const files = summarizeList(
+    pr.files,
+    (file) => `- ${file.path ?? 'unknown'} (+${file.additions ?? 0}/-${file.deletions ?? 0})`
+  );
+  const comments = summarizeList(pr.comments, (comment) => {
+    const author = comment.author?.login ?? 'unknown';
+    return `- ${author} at ${comment.createdAt ?? 'unknown'}: ${truncateText(comment.body, 500)}`;
+  });
+  const reviews = summarizeList(pr.latestReviews, (review) => {
+    const author = review.author?.login ?? 'unknown';
+    return `- ${review.state ?? 'UNKNOWN'} by ${author} at ${review.submittedAt ?? 'unknown'}: ${truncateText(review.body, 500)}`;
+  });
+  const checks = summarizeList(pr.statusCheckRollup, (check) => {
+    const state = check.conclusion ?? check.status ?? 'unknown';
+    const workflow = check.workflowName ? ` (${check.workflowName})` : '';
+    return `- ${check.name ?? 'unknown'}${workflow}: ${state}`;
+  });
   const prompt = [
     `War Room PR review handoff for ${options.pr}`,
     '',
@@ -98,6 +139,18 @@ export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanRe
     '- Pause on vague, repeated, or circular feedback.',
     '- Keep context scoped to changed files, comments, and repo instructions.',
     '- Use warroom abort for preservation-first recovery if the loop needs to stop.',
+    '',
+    'Changed files:',
+    files,
+    '',
+    'Latest reviews:',
+    reviews,
+    '',
+    'Comments:',
+    comments,
+    '',
+    'Checks:',
+    checks,
     '',
     'PR body:',
     truncateText(pr.body),

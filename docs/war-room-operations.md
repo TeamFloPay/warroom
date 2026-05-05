@@ -36,6 +36,8 @@ Workflow commands also understand the Campaign Map:
 - `warroom pr review --issue ... --confirm-status` moves work to `skirmish`.
 - `warroom pr merge --issue ... --confirm-status` moves work to `victory`.
 
+`warroom pr review` handoffs include the PR body, changed files, latest reviews, comments, and check rollup so the launched adapter starts from scoped review context instead of only the PR description.
+
 ## Recovery
 
 `warroom abort --print-recovery` is the first command to run when a multi-repo operation becomes unclear. It prints repo state and recovery commands without mutation.

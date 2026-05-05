@@ -16,6 +16,12 @@ Child repositories should be checked out under `maps/repos/*` by future bootstra
 
 For now, War Room commands also detect sibling checkouts next to this repository, such as `../sdk` and `../demo`, when the mapped `maps/repos/*` checkout is missing. This keeps existing local clones usable while preserving `repos.yaml` as the ownership map.
 
+Preview bootstrap actions:
+
+```sh
+npm run warroom -- bootstrap --dry-run
+```
+
 Clone child repos manually only if needed:
 
 ```sh
@@ -23,6 +29,12 @@ git clone git@github.com:TeamFloPay/sdk.git maps/repos/sdk
 git clone git@github.com:TeamFloPay/backend.git maps/repos/backend
 git clone git@github.com:TeamFloPay/infra.git maps/repos/infra
 git clone git@github.com:TeamFloPay/demo.git maps/repos/demo
+```
+
+Report child repo sync state without pulling:
+
+```sh
+npm run warroom -- sync --report
 ```
 
 ## SDK-To-Demo Linking

@@ -31,6 +31,12 @@ resources:
     description: Public Stripe API and integration documentation.
     docs_url: https://docs.stripe.com/
 
+  - id: stripe-api
+    type: api
+    name: Stripe API
+    description: Logical Stripe API resource; credentials stay in local tool or MCP configuration.
+    docs_url: https://docs.stripe.com/api
+
   - id: nextjs-docs
     type: docs
     name: Next.js Documentation
@@ -54,3 +60,21 @@ resources:
     name: Cloudflare Documentation
     description: Public Cloudflare platform documentation.
     docs_url: https://developers.cloudflare.com/
+
+  - id: sentry-mcp
+    type: mcp
+    name: Sentry MCP
+    description: Logical Sentry MCP resource for issue/event investigation; credentials stay outside git.
+    docs_url: https://docs.sentry.io/
+
+  - id: metabase
+    type: app
+    name: Metabase
+    description: Logical Metabase analytics resource for KPI/reporting queries; connection details stay outside git.
+    docs_url: https://www.metabase.com/docs/
+
+  - id: coderabbit
+    type: app
+    name: CodeRabbit
+    description: Logical CodeRabbit review feedback resource for PR skirmish workflows.
+    docs_url: https://docs.coderabbit.ai/

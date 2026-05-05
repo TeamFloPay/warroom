@@ -7,16 +7,16 @@ This file tracks the current known territory for the War Room foundation and SDK
 | Issue | Repo | Status | Purpose |
 | --- | --- | --- | --- |
 | TeamFloPay/infra#4 | infra | parent epic | War Room foundation and cross-repo command center. |
-| TeamFloPay/infra#11 | infra | ready | Phase-1 War Room skeleton and repo map. |
-| TeamFloPay/sdk#55 | sdk | parent epic | Move docs and demo to their own repos. |
+| TeamFloPay/infra#11 | infra | done | Phase-1 War Room skeleton and repo map. |
+| TeamFloPay/sdk#55 | sdk | done | Move docs and demo to their own repos. |
 | TeamFloPay/sdk#60 | sdk | done | Extract app repos and make them standalone. |
-| TeamFloPay/sdk#59 | sdk | ready | Clean SDK repo after app extraction. |
-| TeamFloPay/infra#10 | infra | ready | Implement SDK-to-demo local dev link after standalone demo exists. |
+| TeamFloPay/sdk#59 | sdk | done | Clean SDK repo after app extraction. |
+| TeamFloPay/infra#10 | infra | done | Implement SDK-to-demo local dev link after standalone demo exists. |
 
 ## Critical Path
 
-1. Implement TeamFloPay/sdk#59.
-2. Implement TeamFloPay/infra#10.
+1. Complete the remaining TeamFloPay/infra#4 War Room MVP command surface.
+2. Keep post-MVP investigations separate: Major Gowen MCP service, intelligence scheduling, issue creation/fortification, autonomous Sergeant subagents, and post-victory metrics.
 
 ## Boundary
 

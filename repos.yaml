@@ -53,6 +53,7 @@ repos:
         resources:
           - github-cli
           - nestjs-docs
+          - stripe-api
           - stripe-docs
 
   - id: infra
@@ -100,6 +101,7 @@ repos:
           - local SDK linking
         resources:
           - github-cli
+          - coderabbit
           - nextjs-docs
           - playwright-docs
 
@@ -146,6 +148,7 @@ repos:
         resources:
           - github-cli
           - nextjs-docs
+          - stripe-api
           - stripe-docs
 
   - id: landing

@@ -2,9 +2,13 @@ import { buildProgram } from '../src/cli.js';
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { runAbort } from '../src/commands/abort.js';
+import { runBootstrap } from '../src/commands/bootstrap.js';
 import { runDoctor } from '../src/commands/doctor.js';
 import { runDevStatus } from '../src/commands/dev-link.js';
+import { runMapsAssign } from '../src/commands/maps-assign.js';
 import { runMapsStudy } from '../src/commands/maps-study.js';
+import { runSync } from '../src/commands/sync.js';
 
 const workspaceRoot = new URL('..', import.meta.url).pathname;
 
@@ -24,6 +28,13 @@ describe('phase-1 CLI', () => {
 
   it('passes the skeleton doctor check', () => {
     expect(runDoctor(workspaceRoot).ok).toBe(true);
+  });
+
+  it('validates campaign atlas generation state', () => {
+    const result = runMapsAssign(workspaceRoot, { check: true });
+
+    expect(result.resourceReferencesOk).toBe(true);
+    expect(result.atlasMatches).toBe(true);
   });
 
   it('prints maps study output', async () => {
@@ -63,6 +74,33 @@ describe('phase-1 CLI', () => {
     expect(lines.some((line) => line.includes('SDK-to-demo dev link: linked'))).toBe(true);
     expect(lines.some((line) => line.includes('Demo Playwright core:'))).toBe(true);
     expect(lines.some((line) => line.includes('NODE_OPTIONS=--preserve-symlinks'))).toBe(false);
+  });
+
+  it('previews bootstrap without cloning sibling checkouts', () => {
+    const root = makeDevFixture();
+
+    const result = runBootstrap(root, { dryRun: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.repos.map((repo) => repo.state)).toEqual(['sibling-present', 'sibling-present']);
+  });
+
+  it('reports sync state without mutating repos', () => {
+    const root = makeDevFixture();
+
+    const result = runSync(root, { report: true });
+
+    expect(result.reportOnly).toBe(true);
+    expect(result.repos).toHaveLength(2);
+  });
+
+  it('prints preservation-first abort recovery output', () => {
+    const root = makeDevFixture();
+
+    const result = runAbort(root);
+
+    expect(result.mutated).toBe(false);
+    expect(result.repos.map((repo) => repo.repo)).toEqual(['TeamFloPay/sdk', 'TeamFloPay/demo']);
   });
 });
 

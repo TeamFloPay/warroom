@@ -1,0 +1,31 @@
+# War Room Operations
+
+War Room coordinates the campaign; child repositories own the code.
+
+## Boundaries
+
+- `repos.yaml` is the machine-readable map for child repos, ownership, local paths, Sergeant assignments, and resource allowlists.
+- `resources.yaml` is the registry for logical Skills, MCPs, APIs, docs, and third-party resources. It contains no secrets.
+- `maps/campaign-atlas.md` is generated from the manifests while preserving protected hand-written notes blocks.
+- `maps/repos/*`, `.warroom/runs/*`, and `.warroom/dev/*` are local-only ignored paths.
+
+## Normal Loop
+
+```sh
+npm run warroom -- doctor
+npm run warroom -- sync --report
+npm run warroom -- issue next
+npm run warroom -- pr engage --issue TeamFloPay/infra#4
+```
+
+Use `--launch` only when ready to hand the scoped prompt to the configured LLM adapter.
+
+## Campaign Map
+
+TeamFloPay Project 1 is the Campaign Map. Current project statuses are `Todo`, `In Progress`, `Blocked`, and `Done`.
+
+Issue/PR commands use labels for local querying today. Project-field mutation is handled deliberately through GitHub CLI operations until the Campaign Map adapter is expanded.
+
+## Recovery
+
+`warroom abort --print-recovery` is the first command to run when a multi-repo operation becomes unclear. It prints repo state and recovery commands without mutation.

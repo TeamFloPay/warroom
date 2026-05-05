@@ -1,32 +1,64 @@
 # Command Reference
 
-Phase 1 provides a small CLI skeleton for validation and discovery. Full workflow automation is tracked by later War Room issues.
+The War Room CLI is a local accelerator for cross-repo work. Human-readable output is the default; core commands support `--json` for agents and tests.
 
 ## Available
 
 ```sh
 warroom --help
-warroom maps study
 warroom doctor
+warroom bootstrap --dry-run
+warroom sync --report
+warroom maps study
+warroom maps assign --check
+warroom issue triage
+warroom issue triage --issue TeamFloPay/infra#4 --write-artifact
+warroom issue next
+warroom issue create
+warroom issue fortify
+warroom pr engage --issue TeamFloPay/infra#4
+warroom pr review --pr TeamFloPay/warroom#1
+warroom pr merge --pr TeamFloPay/warroom#1
+warroom commit create --repo sdk
+warroom abort --print-recovery
 warroom dev status
 warroom dev link
 warroom dev unlink
 ```
 
-## Stubbed For Later
+Namespace and command help support `--help`; the executable also normalizes `-help` for operator muscle memory:
 
-- `warroom bootstrap`
-- `warroom sync`
-- `warroom maps assign`
-- `warroom issue triage`
-- `warroom issue next`
-- `warroom pr engage`
-- `warroom pr review`
-- `warroom pr merge`
-- `warroom commit create`
-- `warroom abort`
+```sh
+warroom maps -help
+warroom pr review --help
+```
 
-Stubbed commands should fail clearly until their implementation issue is active.
+## Safety Defaults
+
+- `bootstrap --dry-run` previews clone actions. Without `--dry-run`, missing active repos are cloned under ignored `maps/repos/*`.
+- `sync --report` does not fetch or pull. Without `--report`, sync skips dirty repos and only fast-forwards clean checkouts.
+- Issue and PR handoff commands print scoped prompts by default. Add `--launch` to start the configured LLM adapter.
+- `pr merge` only merges when `--confirm` is present.
+- `commit create` only commits when `--confirm` is present. `--all` is also explicit.
+- `abort` never resets, cleans, checks out, or deletes branches. `--stash` requires `--confirm`.
+
+## Command Notes
+
+`warroom doctor` validates files, `repos.yaml`, `resources.yaml`, resource references, LLM adapter shape, local repo health, local tool availability including `gh`, and Campaign Map label presence. Label fixes are printed as a reviewed create plan; doctor does not mutate labels.
+
+`warroom maps assign` validates or updates Sergeant/resource assignments. Use `--repo`, `--sergeant`, `--add-resource`, and `--remove-resource` for targeted edits. Pass `--write` to update `repos.yaml` and regenerate `maps/campaign-atlas.md`; protected notes blocks are preserved.
+
+`warroom issue triage` lists open issues with the `needs-triage` label by default. With `--issue owner/repo#number`, it builds a scoped handoff prompt and can write `.warroom/runs/*` artifacts.
+
+`warroom issue next` lists open issues with the `ready-to-engage` label by default.
+
+`warroom issue create` and `warroom issue fortify` are explicit post-MVP placeholders tracked by TeamFloPay/infra#7.
+
+`warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs. Full code-writing automation remains human-directed through the launched adapter.
+
+`warroom commit create` inspects a mapped child repo, proposes a conventional commit message, and refuses to proceed when other child repos are dirty.
+
+`warroom abort` prints recovery commands for every mapped checkout and preserves work by default.
 
 ## SDK-To-Demo Local Linking
 

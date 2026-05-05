@@ -4,32 +4,27 @@ This atlas is the human-readable view of `repos.yaml`. The YAML manifest is the 
 
 War Room owns coordination. Child repositories own code.
 
-## Current Implementation Queue
-
-1. TeamFloPay/infra#11: create War Room skeleton and repo map.
-2. TeamFloPay/sdk#60: extract app repos from `sdk/apps` and make them standalone.
-3. TeamFloPay/sdk#59: clean SDK repo after app extraction.
-4. TeamFloPay/infra#10: implement SDK-to-demo local dev link.
-
 ## Repo Map
 
 | Repo | Status | Local path | Sergeant | Notes |
 | --- | --- | --- | --- | --- |
-| `TeamFloPay/sdk` | active | `maps/repos/sdk` | SDK Sergeant | SDK packages and publish workflow. |
+| `TeamFloPay/sdk` | active | `maps/repos/sdk` | SDK Sergeant | SDK packages published as @flopay/*. |
 | `TeamFloPay/backend` | active | `maps/repos/backend` | Backend Sergeant | Central API and server-side application. |
-| `TeamFloPay/infra` | active | `maps/repos/infra` | Infra Sergeant | Live infrastructure and operational config. |
-| `TeamFloPay/demo` | active | `maps/repos/demo` | Demo Sergeant | Standalone SDK demo app. |
-| `TeamFloPay/docs` | active | `maps/repos/docs` | Docs Sergeant | Standalone SDK docs site. |
-| `TeamFloPay/dashboard` | active | `maps/repos/dashboard` | Dashboard Sergeant | Standalone dashboard app. |
-| `TeamFloPay/landing` | active | `maps/repos/landing` | Landing Sergeant | Standalone marketing site. |
+| `TeamFloPay/infra` | active | `maps/repos/infra` | Infra Sergeant | Live infrastructure and operational configuration. |
+| `TeamFloPay/demo` | active | `maps/repos/demo` | Demo Sergeant | Standalone SDK demo app after extraction from sdk/apps/demo. |
+| `TeamFloPay/docs` | active | `maps/repos/docs` | Docs Sergeant | Standalone SDK documentation site after extraction from sdk/apps/docs. |
+| `TeamFloPay/dashboard` | active | `maps/repos/dashboard` | Dashboard Sergeant | Standalone dashboard app after extraction from sdk/apps/dashboard. |
+| `TeamFloPay/landing` | active | `maps/repos/landing` | Landing Sergeant | Standalone marketing site after extraction from sdk/apps/landing. |
 
 ## Specialist Context
 
 ### SDK Sergeant
 
 - Repo: `TeamFloPay/sdk`
-- Focus: SDK packages, package publishing, package-level docs, demo compatibility.
-- Main resources: GitHub CLI, npm docs, TypeScript docs.
+- Owner: `sdk`
+- Focus: SDK packages, package publishing, demo compatibility
+- Frameworks: TypeScript, pnpm, Turborepo, tsup
+- Resources: GitHub CLI, npm Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=sdk -->
 <!-- Add hand-written SDK notes here. This block should be preserved by future atlas generation. -->
@@ -38,8 +33,10 @@ War Room owns coordination. Child repositories own code.
 ### Backend Sergeant
 
 - Repo: `TeamFloPay/backend`
-- Focus: Central API, checkout orchestration, billing, provider integrations.
-- Main resources: GitHub CLI, NestJS docs, Stripe docs.
+- Owner: `backend`
+- Focus: billing API, checkout orchestration, payment provider integrations
+- Frameworks: NestJS, TypeScript, PostgreSQL
+- Resources: GitHub CLI, NestJS Documentation, Stripe API, Stripe Documentation
 
 <!-- warroom:notes:start repo=backend -->
 <!-- Add hand-written backend notes here. This block should be preserved by future atlas generation. -->
@@ -48,8 +45,10 @@ War Room owns coordination. Child repositories own code.
 ### Infra Sergeant
 
 - Repo: `TeamFloPay/infra`
-- Focus: infrastructure safety, Railway, Cloudflare, Terraform, deployment wiring.
-- Main resources: GitHub CLI, Railway docs, Cloudflare docs.
+- Owner: `infra`
+- Focus: infrastructure safety, deployment wiring, DNS
+- Frameworks: Terraform, Railway, Cloudflare
+- Resources: GitHub CLI, Railway Documentation, Cloudflare Documentation
 
 <!-- warroom:notes:start repo=infra -->
 <!-- Add hand-written infra notes here. This block should be preserved by future atlas generation. -->
@@ -58,7 +57,10 @@ War Room owns coordination. Child repositories own code.
 ### Demo Sergeant
 
 - Repo: `TeamFloPay/demo`
-- Focus: SDK verification, checkout demos, Playwright coverage, local SDK linking after extraction.
+- Owner: `app-demo`
+- Focus: SDK verification, checkout demos, local SDK linking
+- Frameworks: Next.js, Playwright, React
+- Resources: GitHub CLI, CodeRabbit, Next.js Documentation, Playwright Documentation
 
 <!-- warroom:notes:start repo=demo -->
 <!-- Add hand-written demo notes here. This block should be preserved by future atlas generation. -->
@@ -67,7 +69,10 @@ War Room owns coordination. Child repositories own code.
 ### Docs Sergeant
 
 - Repo: `TeamFloPay/docs`
-- Focus: SDK documentation, examples, API reference, guide content.
+- Owner: `app-docs`
+- Focus: SDK documentation, examples, API reference
+- Frameworks: Next.js, Fumadocs, MDX
+- Resources: GitHub CLI, Next.js Documentation
 
 <!-- warroom:notes:start repo=docs -->
 <!-- Add hand-written docs notes here. This block should be preserved by future atlas generation. -->
@@ -76,7 +81,10 @@ War Room owns coordination. Child repositories own code.
 ### Dashboard Sergeant
 
 - Repo: `TeamFloPay/dashboard`
-- Focus: dashboard app and billing/admin workflows.
+- Owner: `app-dashboard`
+- Focus: billing dashboard, admin workflows
+- Frameworks: Next.js, React
+- Resources: GitHub CLI, Next.js Documentation, Stripe API, Stripe Documentation
 
 <!-- warroom:notes:start repo=dashboard -->
 <!-- Add hand-written dashboard notes here. This block should be preserved by future atlas generation. -->
@@ -85,7 +93,10 @@ War Room owns coordination. Child repositories own code.
 ### Landing Sergeant
 
 - Repo: `TeamFloPay/landing`
-- Focus: marketing site and public product pages.
+- Owner: `app-landing`
+- Focus: marketing site, public product pages
+- Frameworks: Next.js, React
+- Resources: GitHub CLI, Next.js Documentation
 
 <!-- warroom:notes:start repo=landing -->
 <!-- Add hand-written landing notes here. This block should be preserved by future atlas generation. -->

@@ -6,17 +6,17 @@ It does not own product source code. Product code remains in the child repositor
 
 ## Current Phase
 
-This repository starts with the phase-1 foundation from [TeamFloPay/infra#11](https://github.com/TeamFloPay/infra/issues/11):
+This repository implements the War Room foundation from [TeamFloPay/infra#4](https://github.com/TeamFloPay/infra/issues/4), with the phase-1 skeleton from [TeamFloPay/infra#11](https://github.com/TeamFloPay/infra/issues/11) and SDK-to-demo local linking from [TeamFloPay/infra#10](https://github.com/TeamFloPay/infra/issues/10):
 
 - private `TeamFloPay/warroom` repository
 - company-level `AGENTS.md`
 - safe ignored locations for child repo checkouts and local run artifacts
 - initial `repos.yaml`, `resources.yaml`, `maps/campaign-atlas.md`, and `maps/issue-territory.md`
-- npm/TypeScript-ready CLI skeleton
+- npm/TypeScript CLI for bootstrap, sync, maps, issue, PR, commit, abort, and dev-link workflows
 
 ## Implementation Order
 
-The current cross-repo implementation order is:
+Completed critical-path slices:
 
 1. War Room phase 1: create this skeleton and repo map.
 2. TeamFloPay/sdk#60: extract `sdk/apps/*` into standalone app repos.
@@ -42,16 +42,22 @@ npm run build
 npm test
 ```
 
-The phase-1 CLI is intentionally small:
+Useful CLI commands:
 
 ```sh
 npm run warroom -- --help
-npm run warroom -- maps study
 npm run warroom -- doctor
+npm run warroom -- bootstrap --dry-run
+npm run warroom -- sync --report
+npm run warroom -- maps study
+npm run warroom -- maps assign --check
+npm run warroom -- issue triage
+npm run warroom -- issue next
+npm run warroom -- abort --print-recovery
 npm run warroom -- dev status
 ```
 
-Future implementation issues will fill in bootstrap, sync, issue, PR, commit, and abort behavior. SDK-to-demo local linking is available through `warroom dev link`, `warroom dev status`, and `warroom dev unlink`.
+SDK-to-demo local linking is available through `warroom dev link`, `warroom dev status`, and `warroom dev unlink`.
 
 ## Child Repo Map
 
@@ -62,10 +68,18 @@ Current mapped repos:
 - `sdk`
 - `backend`
 - `infra`
-- `demo` (planned by TeamFloPay/sdk#60)
-- `docs` (planned by TeamFloPay/sdk#60)
-- `dashboard` (planned by TeamFloPay/sdk#60)
-- `landing` (planned by TeamFloPay/sdk#60)
+- `demo`
+- `docs`
+- `dashboard`
+- `landing`
+
+## Documentation
+
+- [Command reference](docs/command-reference.md)
+- [Local development](docs/local-development.md)
+- [Manual operations](docs/manual-operations.md)
+- [LLM operations](docs/llm-operations.md)
+- [War Room operations](docs/war-room-operations.md)
 
 ## Manual Bypass
 

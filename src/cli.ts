@@ -89,8 +89,18 @@ function printPrPlan(output: Output, result: PrPlanResult) {
 function printCommitCreate(output: Output, result: CommitCreateResult) {
   output(`Commit create for ${result.repo}: ${result.committed ? 'committed' : 'preflight only'}`);
   output(`Path: ${result.path}`);
+  output(`Branch: ${result.branch ?? 'unknown'}@${result.headSha ?? 'unknown'}`);
   output(`Suggested message: ${result.suggestedMessage}`);
-  for (const line of result.statusLines) output(line);
+  if (result.artifact) output(`Artifact: ${result.artifact.runDir}`);
+  for (const change of result.changes) {
+    const state = change.staged && change.unstaged ? 'staged+unstaged' : change.staged ? 'staged' : 'unstaged';
+    output(`${change.indexStatus}${change.worktreeStatus} ${change.path} (${state})`);
+  }
+  for (const validation of result.validation) {
+    output(
+      `${validation.ok ? 'ok' : 'failed'} validation: ${validation.command} (exit ${validation.status ?? 'unknown'}, ${validation.durationMs}ms)`
+    );
+  }
   for (const blocker of result.blocked) output(`blocked: ${blocker}`);
 }
 
@@ -469,10 +479,12 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .description('Inspect a child repo and optionally create a conventional commit.')
     .requiredOption('--repo <id>', 'Repo id from repos.yaml.')
     .option('--message <message>', 'Commit message to use.')
+    .option('--validate <command>', 'Validation command to run from the target repo before commit. Repeatable.', collect, [])
+    .option('--write-artifact', 'Write input/result/summary artifacts under .warroom/runs.')
     .option('--all', 'Stage all changes before committing. Requires --confirm.')
     .option('--confirm', 'Actually create the commit.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { repo: string; message?: string; all?: boolean; confirm?: boolean; json?: boolean }) => {
+    .action((opts: { repo: string; message?: string; validate?: string[]; writeArtifact?: boolean; all?: boolean; confirm?: boolean; json?: boolean }) => {
       const result = runCommitCreate(workspaceRoot, opts);
       if (opts.json) {
         printJson(output, result);

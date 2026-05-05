@@ -122,7 +122,7 @@ export function getGitStatus(repoPath: string) {
     return { clean: null, statusLines: [] };
   }
 
-  const result = runGit(repoPath, ['status', '--short']);
+  const result = runGit(repoPath, ['status', '--short', '--untracked-files=all']);
   if (result.status !== 0) {
     return { clean: null, statusLines: [`git status failed with exit ${result.status ?? 'unknown'}`] };
   }

@@ -20,6 +20,7 @@ npm run warroom -- pr engage --issue TeamFloPay/infra#4
 
 Use `--launch` only when ready to hand the scoped prompt to the configured LLM adapter.
 Use `--confirm-status` only when ready to mutate the Campaign Map state for the selected issue.
+Use `warroom commit create --repo <id> --validate "<command>" --write-artifact` before a final commit when the repo needs a deterministic change summary, validation record, and local audit bundle.
 
 ## Campaign Map
 
@@ -37,6 +38,8 @@ Workflow commands also understand the Campaign Map:
 - `warroom pr merge --issue ... --confirm-status` moves work to `victory`.
 
 `warroom pr review` handoffs include the PR body, changed files, latest reviews, comments, and check rollup so the launched adapter starts from scoped review context instead of only the PR description.
+
+`warroom commit create` summarizes changed files, runs requested validation commands from the owning child repo, and writes ignored run artifacts when `--write-artifact` is present. A confirmed commit is still gated by `--confirm`; staging all files is gated separately by `--all`.
 
 ## Recovery
 

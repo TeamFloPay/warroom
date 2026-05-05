@@ -1,10 +1,12 @@
 import { buildProgram } from '../src/cli.js';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runAbort } from '../src/commands/abort.js';
 import { runBootstrap } from '../src/commands/bootstrap.js';
 import { runCampaignStatusCheck } from '../src/commands/campaign.js';
+import { runCommitCreate } from '../src/commands/commit-create.js';
 import { runDoctor } from '../src/commands/doctor.js';
 import { runDevStatus } from '../src/commands/dev-link.js';
 import { runMapsAssign } from '../src/commands/maps-assign.js';
@@ -117,6 +119,47 @@ describe('phase-1 CLI', () => {
     expect(result.mutated).toBe(false);
     expect(result.repos.map((repo) => repo.repo)).toEqual(['TeamFloPay/sdk', 'TeamFloPay/demo']);
   });
+
+  it('preflights commit creation with validation artifacts', () => {
+    const { root, sdk } = makeCommitFixture();
+    mkdirSync(path.join(sdk, 'docs'), { recursive: true });
+    writeFileSync(path.join(sdk, 'docs', 'note.md'), 'Commit notes.\n');
+
+    const result = runCommitCreate(root, {
+      repo: 'sdk',
+      validate: ['node -e "console.log(42)"'],
+      writeArtifact: true,
+    });
+
+    expect(result.blocked).toEqual([]);
+    expect(result.committed).toBe(false);
+    expect(result.suggestedMessage).toBe('docs(sdk): update war room workflow');
+    expect(result.changes.map((change) => [change.path, change.unstaged])).toEqual([['docs/note.md', true]]);
+    expect(result.validation).toHaveLength(1);
+    expect(result.validation[0]?.ok).toBe(true);
+    expect(result.validation[0]?.stdout).toBe('42');
+    expect(result.artifact).toBeDefined();
+    expect(existsSync(path.join(result.artifact!.runDir, 'summary.md'))).toBe(true);
+    expect(readFileSync(path.join(result.artifact!.runDir, 'summary.md'), 'utf8')).toContain('ok node -e "console.log(42)"');
+  });
+
+  it('blocks confirmed commit creation when changes are unstaged and --all is absent', () => {
+    const { root, sdk } = makeCommitFixture();
+    writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
+
+    expect(() => runCommitCreate(root, { repo: 'sdk', confirm: true })).toThrow(/No staged changes/);
+  });
+
+  it('blocks commit creation when validation fails', () => {
+    const { root, sdk } = makeCommitFixture();
+    writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
+
+    const result = runCommitCreate(root, { repo: 'sdk', validate: ['node -e "process.exit(7)"'] });
+
+    expect(result.validation[0]?.ok).toBe(false);
+    expect(result.validation[0]?.status).toBe(7);
+    expect(result.blocked).toContain('Validation failed: node -e "process.exit(7)"');
+  });
 });
 
 function makeDevFixture() {
@@ -186,4 +229,66 @@ repos:
   }
 
   return root;
+}
+
+function makeCommitFixture() {
+  const base = mkdtempSync(path.join(tmpdir(), 'warroom-commit-'));
+  const root = path.join(base, 'warroom');
+  const sdk = path.join(base, 'sdk');
+  const demo = path.join(base, 'demo');
+
+  mkdirSync(root, { recursive: true });
+  mkdirSync(path.join(root, 'maps', 'repos'), { recursive: true });
+  initGitRepo(sdk);
+  initGitRepo(demo);
+
+  writeFileSync(
+    path.join(root, 'repos.yaml'),
+    `version: 1
+defaults:
+  owner: TeamFloPay
+  clone_protocol: ssh
+  default_branch: main
+  local_root: maps/repos
+repos:
+  - id: sdk
+    name: sdk
+    github: TeamFloPay/sdk
+    ssh_url: git@github.com:TeamFloPay/sdk.git
+    local_path: maps/repos/sdk
+    status: active
+    owner: sdk
+    description: SDK packages.
+    specialist:
+      name: SDK Sergeant
+      context:
+        frameworks: []
+        domains: []
+        resources: []
+  - id: demo
+    name: demo
+    github: TeamFloPay/demo
+    ssh_url: git@github.com:TeamFloPay/demo.git
+    local_path: maps/repos/demo
+    status: active
+    owner: demo
+    description: Demo app.
+    specialist:
+      name: Demo Sergeant
+      context:
+        frameworks: []
+        domains: []
+        resources: []
+`
+  );
+
+  return { root, sdk, demo };
+}
+
+function initGitRepo(repoPath: string) {
+  mkdirSync(repoPath, { recursive: true });
+  const init = spawnSync('git', ['init', '-b', 'main'], { cwd: repoPath, encoding: 'utf8' });
+  if (init.status !== 0) throw new Error(init.stderr);
+  spawnSync('git', ['config', 'user.email', 'warroom@example.com'], { cwd: repoPath });
+  spawnSync('git', ['config', 'user.name', 'War Room'], { cwd: repoPath });
 }

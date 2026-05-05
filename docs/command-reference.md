@@ -22,7 +22,7 @@ warroom issue fortify
 warroom pr engage --issue TeamFloPay/infra#4
 warroom pr review --pr TeamFloPay/warroom#1 --issue TeamFloPay/infra#4
 warroom pr merge --pr TeamFloPay/warroom#1 --issue TeamFloPay/infra#4
-warroom commit create --repo sdk
+warroom commit create --repo sdk --validate "npm test" --write-artifact
 warroom abort --print-recovery
 warroom dev status
 warroom dev link
@@ -45,7 +45,7 @@ warroom pr review --help
 - Issue and PR handoff commands print scoped prompts by default. Add `--launch` to start the configured LLM adapter.
 - Workflow status movement is guarded separately with `--confirm-status`.
 - `pr merge` only merges when `--confirm` is present.
-- `commit create` only commits when `--confirm` is present. `--all` is also explicit.
+- `commit create` only commits when `--confirm` is present. `--all` is also explicit, and validation commands must pass before a confirmed commit proceeds.
 - `abort` never resets, cleans, checks out, or deletes branches. `--stash` requires `--confirm`.
 
 ## Command Notes
@@ -68,7 +68,7 @@ warroom pr review --help
 
 `warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs. `pr review` includes PR files, comments, latest reviews, and check state in the handoff. `pr engage --confirm-status` moves the issue to `battlefield-active`; `pr review --issue ... --confirm-status` moves it to `skirmish`; `pr merge --issue ... --confirm-status` moves it to `victory`. Full code-writing automation remains human-directed through the launched adapter.
 
-`warroom commit create` inspects a mapped child repo, proposes a conventional commit message, and refuses to proceed when other child repos are dirty.
+`warroom commit create` inspects a mapped child repo, summarizes changed files, proposes a conventional commit message, optionally runs repeatable `--validate <command>` checks from the target repo, and refuses to proceed when other child repos are dirty. Add `--write-artifact` to write `input.json`, `result.json`, `summary.md`, `status.txt`, and `validation.json` under ignored `.warroom/runs/*`. A confirmed commit without `--all` requires the target repo to have only staged changes.
 
 `warroom abort` prints recovery commands for every mapped checkout and preserves work by default.
 

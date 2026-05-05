@@ -213,6 +213,7 @@ repos:
         resources: []
 `
   );
+  writeResourcesFixture(root);
 
   writeFileSync(path.join(sdk, 'package.json'), '{"packageManager":"pnpm@9.15.0"}\n');
   writeFileSync(path.join(demo, 'package.json'), '{"packageManager":"pnpm@9.15.0"}\n');
@@ -281,6 +282,7 @@ repos:
         resources: []
 `
   );
+  writeResourcesFixture(root);
 
   return { root, sdk, demo };
 }
@@ -291,4 +293,21 @@ function initGitRepo(repoPath: string) {
   if (init.status !== 0) throw new Error(init.stderr);
   spawnSync('git', ['config', 'user.email', 'warroom@example.com'], { cwd: repoPath });
   spawnSync('git', ['config', 'user.name', 'War Room'], { cwd: repoPath });
+}
+
+function writeResourcesFixture(root: string) {
+  writeFileSync(
+    path.join(root, 'resources.yaml'),
+    `version: 1
+resources:
+  - id: github-cli
+    type: cli
+    name: GitHub CLI
+    description: Fixture GitHub CLI resource.
+  - id: typescript-docs
+    type: docs
+    name: TypeScript Documentation
+    description: Fixture TypeScript docs resource.
+`
+  );
 }

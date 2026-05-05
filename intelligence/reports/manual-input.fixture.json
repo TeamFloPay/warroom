@@ -1,0 +1,24 @@
+{
+  "title": "Manual intelligence input fixture",
+  "generated_at": "2026-05-05T00:00:00.000Z",
+  "source": "manual",
+  "summary": "Safe example input for shaping Brigadier Kirkpatrick reports before live integrations exist.",
+  "signals": [
+    {
+      "name": "example_signal",
+      "value": "replace with a non-secret manual observation",
+      "source": "operator"
+    }
+  ],
+  "risks": [
+    {
+      "name": "example_risk",
+      "severity": "low",
+      "detail": "Fixture only. Do not include credentials, private endpoints, or customer data."
+    }
+  ],
+  "recommended_actions": [
+    "Convert repeated manual observations into a tracked issue before automating."
+  ],
+  "follow_up_issues": []
+}

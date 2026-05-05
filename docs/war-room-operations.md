@@ -21,6 +21,7 @@ npm run warroom -- pr engage --issue TeamFloPay/infra#4
 Use `--launch` only when ready to hand the scoped prompt to the configured LLM adapter.
 Use `--confirm-status` only when ready to mutate the Campaign Map state for the selected issue.
 Use `warroom commit create --repo <id> --validate "<command>" --write-artifact` before a final commit when the repo needs a deterministic change summary, validation record, and local audit bundle.
+Use `warroom maps assign --repo <id>` with framework/domain/resource flags for reviewed specialist-context edits; pass `--write` only after checking the dry-run messages.
 
 ## Campaign Map
 
@@ -38,6 +39,7 @@ Workflow commands also understand the Campaign Map:
 - `warroom pr merge --issue ... --confirm-status` moves work to `victory`.
 
 `warroom pr review` handoffs include the PR body, changed files, latest reviews, comments, and check rollup so the launched adapter starts from scoped review context instead of only the PR description.
+The handoff also includes the assigned Sergeant, repo-specific frameworks/domains, allowed resources, context size, outcome-marker guidance, and the default 60-minute check-in loop.
 
 `warroom pr merge` handoffs include merge state, review decision, draft state, status checks, readiness blockers, and a generated victory summary. `--confirm` is still required for the merge itself. `--post-summary --confirm-summary` is required before War Room posts victory summary comments to GitHub. `--cleanup-local --confirm-cleanup` is required before War Room switches the mapped clean child checkout back to the PR base branch. `--confirm-status` moves the linked issue to `victory` only when the merge-readiness preflight is clear.
 
@@ -45,4 +47,4 @@ Workflow commands also understand the Campaign Map:
 
 ## Recovery
 
-`warroom abort --print-recovery` is the first command to run when a multi-repo operation becomes unclear. It prints repo state and recovery commands without mutation.
+`warroom abort --print-recovery` is the first command to run when a multi-repo operation becomes unclear. It prints repo state and recovery commands without mutation. `--stash --confirm` is the preferred mutation when work should be preserved; `--danger-reset --confirm-danger "discard local work"` exists only as a last-resort local discard path.

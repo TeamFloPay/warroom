@@ -16,6 +16,18 @@ War Room owns coordination. Child repositories own code.
 | `TeamFloPay/dashboard` | active | `maps/repos/dashboard` | Dashboard Sergeant | Standalone dashboard app after extraction from sdk/apps/dashboard. |
 | `TeamFloPay/landing` | active | `maps/repos/landing` | Landing Sergeant | Standalone marketing site after extraction from sdk/apps/landing. |
 
+## Ownership Boundaries
+
+- War Room owns repo maps, local command orchestration, company-level agent guidance, local run artifacts, and workflow helpers.
+- Child repositories own product source, product tests, package publishing, deployable infrastructure, and repo-specific documentation.
+- Product edits produced during a War Room workflow are committed in the owning child repository, not in War Room.
+
+## Territory Snapshot
+
+- Known territory is tracked in `maps/issue-territory.md` and the Campaign Map project.
+- Blurry territory starts in `needs-triage` and moves to `ready-to-engage` after a scoped battle plan exists.
+- Unmapped territory should become a GitHub issue before implementation unless it is a tiny local War Room maintenance task.
+
 ## Specialist Context
 
 ### SDK Sergeant
@@ -36,7 +48,7 @@ War Room owns coordination. Child repositories own code.
 - Owner: `backend`
 - Focus: billing API, checkout orchestration, payment provider integrations
 - Frameworks: NestJS, TypeScript, PostgreSQL
-- Resources: GitHub CLI, NestJS Documentation, Stripe API, Stripe Documentation
+- Resources: GitHub CLI, NestJS Documentation, Stripe API, Stripe Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=backend -->
 <!-- Add hand-written backend notes here. This block should be preserved by future atlas generation. -->
@@ -60,7 +72,7 @@ War Room owns coordination. Child repositories own code.
 - Owner: `app-demo`
 - Focus: SDK verification, checkout demos, local SDK linking
 - Frameworks: Next.js, Playwright, React
-- Resources: GitHub CLI, CodeRabbit, Next.js Documentation, Playwright Documentation
+- Resources: CodeRabbit, GitHub CLI, Next.js Documentation, Playwright Documentation, Stripe API, Stripe Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=demo -->
 <!-- Add hand-written demo notes here. This block should be preserved by future atlas generation. -->
@@ -72,7 +84,7 @@ War Room owns coordination. Child repositories own code.
 - Owner: `app-docs`
 - Focus: SDK documentation, examples, API reference
 - Frameworks: Next.js, Fumadocs, MDX
-- Resources: GitHub CLI, Next.js Documentation
+- Resources: GitHub CLI, Next.js Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=docs -->
 <!-- Add hand-written docs notes here. This block should be preserved by future atlas generation. -->
@@ -84,7 +96,7 @@ War Room owns coordination. Child repositories own code.
 - Owner: `app-dashboard`
 - Focus: billing dashboard, admin workflows
 - Frameworks: Next.js, React
-- Resources: GitHub CLI, Next.js Documentation, Stripe API, Stripe Documentation
+- Resources: GitHub CLI, Next.js Documentation, Stripe API, Stripe Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=dashboard -->
 <!-- Add hand-written dashboard notes here. This block should be preserved by future atlas generation. -->
@@ -96,7 +108,7 @@ War Room owns coordination. Child repositories own code.
 - Owner: `app-landing`
 - Focus: marketing site, public product pages
 - Frameworks: Next.js, React
-- Resources: GitHub CLI, Next.js Documentation
+- Resources: GitHub CLI, Next.js Documentation, TypeScript Documentation
 
 <!-- warroom:notes:start repo=landing -->
 <!-- Add hand-written landing notes here. This block should be preserved by future atlas generation. -->

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { z } from 'zod';
@@ -24,6 +24,11 @@ export function loadResourcesManifest(workspaceRoot: string): ResourcesManifest 
   const resourcesPath = path.join(workspaceRoot, 'resources.yaml');
   const raw = readFileSync(resourcesPath, 'utf8');
   return ResourcesSchema.parse(YAML.parse(raw));
+}
+
+export function writeResourcesManifest(workspaceRoot: string, resources: ResourcesManifest) {
+  const resourcesPath = path.join(workspaceRoot, 'resources.yaml');
+  writeFileSync(resourcesPath, YAML.stringify(resources));
 }
 
 export function validateResourceReferences(manifest: RepoManifest, resources: ResourcesManifest) {

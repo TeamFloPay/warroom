@@ -3,6 +3,7 @@ import { createRunArtifact, type RunArtifact } from '../lib/artifacts.js';
 import { setCampaignStatus, type CampaignStatusSetResult } from '../lib/campaign.js';
 import { getAdapterCommand } from '../lib/env.js';
 import { getRepoHealth, loadRepoManifest, runGit } from '../lib/repos.js';
+import { buildSpecialistContext } from '../lib/specialist-context.js';
 import { parseIssueRef } from './issues.js';
 
 export type PrOptions = {
@@ -18,6 +19,7 @@ export type PrOptions = {
   confirmSummary?: boolean;
   cleanupLocal?: boolean;
   confirmCleanup?: boolean;
+  checkInMinutes?: number;
 };
 
 export type MergeReadiness = {
@@ -63,6 +65,14 @@ export type PrPlanResult = {
   summaryPosts?: SummaryPostResult[];
   merged?: boolean;
   localCleanup?: LocalCleanupResult | null;
+  contextSummary?: {
+    promptCharacters: number;
+    changedFiles?: number;
+    comments?: number;
+    reviews?: number;
+    checks?: number;
+    checkInMinutes?: number;
+  };
 };
 
 function ghJson<T>(args: string[], fallback: T): T {
@@ -301,6 +311,9 @@ export function runPrEngage(workspaceRoot: string, options: PrOptions): PrPlanRe
     '',
     `Title: ${issue.title ?? 'unknown'}`,
     `URL: ${issue.url ?? `https://github.com/${ref.repo}/issues/${ref.number}`}`,
+    `Target branch: ${options.base ?? 'main'} (use stage only as the second target option after validation)`,
+    '',
+    buildSpecialistContext(workspaceRoot, ref.repo),
     '',
     'Required preflight:',
     '- Confirm owner repo and branch strategy.',
@@ -321,9 +334,10 @@ export function runPrEngage(workspaceRoot: string, options: PrOptions): PrPlanRe
   const adapterCommand = getAdapterCommand(workspaceRoot);
   const campaignStatus = setCampaignStatus(options.issue, 'battlefield-active', { confirm: options.confirmStatus });
 
-  if (options.dryRun !== false) return { prompt, artifact, launched: false, adapterCommand, action: 'engage', campaignStatus };
+  const contextSummary = { promptCharacters: prompt.length };
+  if (options.dryRun !== false) return { prompt, artifact, launched: false, adapterCommand, action: 'engage', campaignStatus, contextSummary };
   const launched = spawnSync(adapterCommand, [], { input: prompt, stdio: ['pipe', 'inherit', 'inherit'] }).status === 0;
-  return { prompt, artifact, launched, adapterCommand, action: 'engage', campaignStatus };
+  return { prompt, artifact, launched, adapterCommand, action: 'engage', campaignStatus, contextSummary };
 }
 
 export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanResult {
@@ -368,6 +382,7 @@ export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanRe
     const workflow = check.workflowName ? ` (${check.workflowName})` : '';
     return `- ${check.name ?? 'unknown'}${workflow}: ${state}`;
   });
+  const checkInMinutes = options.checkInMinutes ?? 60;
   const prompt = [
     `War Room PR review handoff for ${options.pr}`,
     '',
@@ -375,11 +390,16 @@ export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanRe
     `URL: ${pr.url ?? `https://github.com/${ref.repo}/pull/${ref.number}`}`,
     `Branch: ${pr.headRefName ?? 'unknown'} -> ${pr.baseRefName ?? 'unknown'}`,
     '',
+    buildSpecialistContext(workspaceRoot, ref.repo),
+    '',
     'Required review loop:',
     '- Gather current GitHub and CodeRabbit feedback before editing.',
     '- Reply to each actionable comment with an outcome marker after handling it.',
     '- Pause on vague, repeated, or circular feedback.',
     '- Keep context scoped to changed files, comments, and repo instructions.',
+    '- Use eyes-in-progress replies before starting comment-by-comment feedback work when posting is explicitly confirmed.',
+    '- Reply with ✅ for completed feedback and ❌ plus a concise reason when feedback is not actionable.',
+    `- Check back every ${checkInMinutes} minutes while the skirmish remains active, then continue or retreat through warroom abort.`,
     '- Use warroom abort for preservation-first recovery if the loop needs to stop.',
     '',
     'Changed files:',
@@ -407,10 +427,18 @@ export function runPrReview(workspaceRoot: string, options: PrOptions): PrPlanRe
   const campaignStatus = options.issue
     ? setCampaignStatus(options.issue, 'skirmish', { confirm: options.confirmStatus })
     : null;
+  const contextSummary = {
+    promptCharacters: prompt.length,
+    changedFiles: pr.files?.length ?? 0,
+    comments: pr.comments?.length ?? 0,
+    reviews: pr.latestReviews?.length ?? 0,
+    checks: pr.statusCheckRollup?.length ?? 0,
+    checkInMinutes,
+  };
 
-  if (options.dryRun !== false) return { prompt, artifact, launched: false, adapterCommand, action: 'review', campaignStatus };
+  if (options.dryRun !== false) return { prompt, artifact, launched: false, adapterCommand, action: 'review', campaignStatus, contextSummary };
   const launched = spawnSync(adapterCommand, [], { input: prompt, stdio: ['pipe', 'inherit', 'inherit'] }).status === 0;
-  return { prompt, artifact, launched, adapterCommand, action: 'review', campaignStatus };
+  return { prompt, artifact, launched, adapterCommand, action: 'review', campaignStatus, contextSummary };
 }
 
 export function runPrMerge(workspaceRoot: string, options: PrOptions): PrPlanResult {
@@ -448,6 +476,8 @@ export function runPrMerge(workspaceRoot: string, options: PrOptions): PrPlanRes
     `Merge state: ${pr.mergeStateStatus ?? 'unknown'}`,
     `Review decision: ${pr.reviewDecision ?? 'unknown'}`,
     `Draft: ${pr.isDraft === undefined ? 'unknown' : pr.isDraft ? 'yes' : 'no'}`,
+    '',
+    buildSpecialistContext(workspaceRoot, ref.repo),
     '',
     'Readiness blockers:',
     readiness.blocked.length ? readiness.blocked.map((blocker) => `- ${blocker}`).join('\n') : 'none',
@@ -506,5 +536,6 @@ export function runPrMerge(workspaceRoot: string, options: PrOptions): PrPlanRes
     summaryPosts,
     merged,
     localCleanup,
+    contextSummary: { promptCharacters: prompt.length, checks: readiness.checks.length },
   };
 }

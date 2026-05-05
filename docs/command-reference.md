@@ -8,19 +8,21 @@ The War Room CLI is a local accelerator for cross-repo work. Human-readable outp
 warroom --help
 warroom doctor
 warroom bootstrap --dry-run
+warroom bootstrap --dry-run --write-proposals
 warroom sync --report
 warroom campaign status-check
 warroom campaign labels
 warroom campaign status --issue TeamFloPay/infra#4 --status battlefield-active
 warroom maps study
 warroom maps assign --check
+warroom maps assign --repo sdk --add-framework TypeScript --add-resource github-cli
 warroom issue triage
-warroom issue triage --issue TeamFloPay/infra#4 --mark-ready --write-artifact
+warroom issue triage --issue TeamFloPay/infra#4 --dry-run --mark-ready --write-artifact
 warroom issue next
 warroom issue create
 warroom issue fortify
-warroom pr engage --issue TeamFloPay/infra#4
-warroom pr review --pr TeamFloPay/warroom#1 --issue TeamFloPay/infra#4
+warroom pr engage --issue TeamFloPay/infra#4 --base main
+warroom pr review --pr TeamFloPay/warroom#1 --issue TeamFloPay/infra#4 --dry-run
 warroom pr merge --pr TeamFloPay/warroom#1 --issue TeamFloPay/infra#4 --write-artifact
 warroom commit create --repo sdk --validate "npm test" --write-artifact
 warroom abort --print-recovery
@@ -38,15 +40,15 @@ warroom pr review --help
 
 ## Safety Defaults
 
-- `bootstrap --dry-run` previews clone actions. Without `--dry-run`, missing active repos are cloned under ignored `maps/repos/*`.
+- `bootstrap --dry-run` previews clone actions and inferred resource/allowlist proposals. Without `--dry-run`, missing active repos are cloned under ignored `maps/repos/*`. Resource proposal writes require `--write-proposals --confirm`.
 - `sync --report` does not fetch or pull. Without `--report`, sync skips dirty repos and only fast-forwards clean checkouts.
 - `campaign labels --apply` creates missing repo labels only when `--confirm` is also present.
 - `campaign status` previews issue status movement unless `--confirm` is present. Moving to `blockaded` requires `--reason`.
-- Issue and PR handoff commands print scoped prompts by default. Add `--launch` to start the configured LLM adapter.
+- Issue and PR handoff commands print scoped prompts by default. Add `--dry-run` for explicit preview mode or `--launch` to start the configured LLM adapter.
 - Workflow status movement is guarded separately with `--confirm-status`.
 - `pr merge` only merges when `--confirm` is present. Victory summary comments require `--post-summary --confirm-summary`; local checkout cleanup requires `--cleanup-local --confirm-cleanup`.
 - `commit create` only commits when `--confirm` is present. `--all` is also explicit, and validation commands must pass before a confirmed commit proceeds.
-- `abort` never resets, cleans, checks out, or deletes branches. `--stash` requires `--confirm`.
+- `abort` preserves work by default. `--stash` requires `--confirm`; the destructive last-resort reset path requires `--danger-reset --confirm-danger "discard local work"`.
 
 ## Command Notes
 
@@ -58,19 +60,19 @@ warroom pr review --help
 
 `warroom campaign status` previews or applies issue movement on the Campaign Map. Use `--confirm` to mutate the board.
 
-`warroom maps assign` validates or updates Sergeant/resource assignments. Use `--repo`, `--sergeant`, `--add-resource`, and `--remove-resource` for targeted edits. Pass `--write` to update `repos.yaml` and regenerate `maps/campaign-atlas.md`; protected notes blocks are preserved.
+`warroom maps assign` validates or updates Sergeant/resource assignments. Use `--repo`, `--sergeant`, `--add-framework`, `--remove-framework`, `--add-domain`, `--remove-domain`, `--add-resource`, and `--remove-resource` for targeted specialist-context edits. Use `--resource-id` with `--resource-type`, `--resource-name`, `--resource-description`, and `--resource-docs-url` to add or update safe logical resource definitions. Pass `--write` to update `repos.yaml`, `resources.yaml`, and regenerate `maps/campaign-atlas.md`; protected notes blocks are preserved.
 
-`warroom issue triage` lists Campaign Map items in `needs-triage`. If the project query returns no items, it falls back to open issues with the `needs-triage` label. With `--issue owner/repo#number`, it builds a scoped handoff prompt and can write `.warroom/runs/*` artifacts. Add `--mark-ready --confirm-status` after a successful triage to move the issue to `ready-to-engage`.
+`warroom issue triage` lists Campaign Map items in `needs-triage`. If the project query returns no items, it falls back to open issues with the `needs-triage` label. With `--issue owner/repo#number`, it builds a scoped handoff prompt with the assigned Sergeant, repo specialist context, and allowed resources, and can write `.warroom/runs/*` artifacts. Add `--mark-ready --confirm-status` after a successful triage to move the issue to `ready-to-engage`.
 
 `warroom issue next` lists Campaign Map items in `ready-to-engage`. If the project query returns no items, it falls back to open issues with the `ready-to-engage` label.
 
 `warroom issue create` and `warroom issue fortify` are explicit post-MVP placeholders tracked by TeamFloPay/infra#7.
 
-`warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs. `pr review` includes PR files, comments, latest reviews, and check state in the handoff. `pr merge` includes merge state, review decision, draft state, status checks, readiness blockers, and a generated victory summary. Add `--summary <text>` to customize the summary, `--write-artifact` to store `prompt.md`, `pr.json`, `readiness.json`, `summary.md`, `summary-posts.json`, and `local-cleanup.json`, and `--post-summary --confirm-summary` to post comments to the PR plus linked issue. Add `--cleanup-local --confirm-cleanup` to switch the mapped clean local checkout back to the PR base branch when it is currently on the PR branch. `pr engage --confirm-status` moves the issue to `battlefield-active`; `pr review --issue ... --confirm-status` moves it to `skirmish`; `pr merge --issue ... --confirm-status` moves it to `victory` only when no merge-readiness blockers are detected. Full code-writing automation remains human-directed through the launched adapter.
+`warroom pr engage`, `warroom pr review`, and `warroom pr merge` provide preflight plans and scoped handoffs with the assigned Sergeant, repo specialist context, and allowed resources. `pr engage --base main` defaults to `main`; `stage` remains the secondary target option after validation. `pr review --dry-run` includes PR files, comments, latest reviews, check state, context size, and a 60-minute default check-in instruction for future feedback loops. `pr merge` includes merge state, review decision, draft state, status checks, readiness blockers, and a generated victory summary. Add `--summary <text>` to customize the summary, `--write-artifact` to store `prompt.md`, `pr.json`, `readiness.json`, `summary.md`, `summary-posts.json`, and `local-cleanup.json`, and `--post-summary --confirm-summary` to post comments to the PR plus linked issue. Add `--cleanup-local --confirm-cleanup` to switch the mapped clean local checkout back to the PR base branch when it is currently on the PR branch. `pr engage --confirm-status` moves the issue to `battlefield-active`; `pr review --issue ... --confirm-status` moves it to `skirmish`; `pr merge --issue ... --confirm-status` moves it to `victory` only when no merge-readiness blockers are detected. Full code-writing automation remains human-directed through the launched adapter.
 
 `warroom commit create` inspects a mapped child repo, summarizes changed files, proposes a conventional commit message, optionally runs repeatable `--validate <command>` checks from the target repo, and refuses to proceed when other child repos are dirty. Add `--write-artifact` to write `input.json`, `result.json`, `summary.md`, `status.txt`, and `validation.json` under ignored `.warroom/runs/*`. A confirmed commit without `--all` requires the target repo to have only staged changes.
 
-`warroom abort` prints recovery commands for every mapped checkout and preserves work by default.
+`warroom abort` prints recovery commands for every mapped checkout and preserves work by default. It can stash dirty work with `--stash --confirm`. The destructive reset/clean escape hatch is intentionally awkward and requires the exact `--danger-reset --confirm-danger "discard local work"` phrase.
 
 ## SDK-To-Demo Local Linking
 

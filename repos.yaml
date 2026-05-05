@@ -4,7 +4,6 @@ defaults:
   clone_protocol: ssh
   default_branch: main
   local_root: maps/repos
-
 repos:
   - id: sdk
     name: sdk
@@ -30,7 +29,6 @@ repos:
           - github-cli
           - npm-docs
           - typescript-docs
-
   - id: backend
     name: backend
     github: TeamFloPay/backend
@@ -55,7 +53,7 @@ repos:
           - nestjs-docs
           - stripe-api
           - stripe-docs
-
+          - typescript-docs
   - id: infra
     name: infra
     github: TeamFloPay/infra
@@ -79,7 +77,6 @@ repos:
           - github-cli
           - railway-docs
           - cloudflare-docs
-
   - id: demo
     name: demo
     github: TeamFloPay/demo
@@ -100,11 +97,13 @@ repos:
           - checkout demos
           - local SDK linking
         resources:
-          - github-cli
           - coderabbit
+          - github-cli
           - nextjs-docs
           - playwright-docs
-
+          - stripe-api
+          - stripe-docs
+          - typescript-docs
   - id: docs
     name: docs
     github: TeamFloPay/docs
@@ -127,7 +126,7 @@ repos:
         resources:
           - github-cli
           - nextjs-docs
-
+          - typescript-docs
   - id: dashboard
     name: dashboard
     github: TeamFloPay/dashboard
@@ -150,7 +149,7 @@ repos:
           - nextjs-docs
           - stripe-api
           - stripe-docs
-
+          - typescript-docs
   - id: landing
     name: landing
     github: TeamFloPay/landing
@@ -171,3 +170,4 @@ repos:
         resources:
           - github-cli
           - nextjs-docs
+          - typescript-docs

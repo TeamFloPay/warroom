@@ -4,6 +4,8 @@ War Room is the local command center for Flo cross-repo work. It owns the operat
 
 It does not own product source code. Product code remains in the child repositories that build, test, deploy, and publish independently.
 
+`warroom` replaces the earlier local `flo` repo direction as the implementation workspace. Flo remains the company/product umbrella term.
+
 ## Current Phase
 
 This repository implements the War Room foundation from [TeamFloPay/infra#4](https://github.com/TeamFloPay/infra/issues/4), with the phase-1 skeleton from [TeamFloPay/infra#11](https://github.com/TeamFloPay/infra/issues/11) and SDK-to-demo local linking from [TeamFloPay/infra#10](https://github.com/TeamFloPay/infra/issues/10):

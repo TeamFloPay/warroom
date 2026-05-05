@@ -42,7 +42,23 @@ export function generateCampaignAtlas(manifest: RepoManifest, resources: Resourc
     );
   }
 
-  lines.push('', '## Specialist Context', '');
+  lines.push(
+    '',
+    '## Ownership Boundaries',
+    '',
+    '- War Room owns repo maps, local command orchestration, company-level agent guidance, local run artifacts, and workflow helpers.',
+    '- Child repositories own product source, product tests, package publishing, deployable infrastructure, and repo-specific documentation.',
+    '- Product edits produced during a War Room workflow are committed in the owning child repository, not in War Room.',
+    '',
+    '## Territory Snapshot',
+    '',
+    '- Known territory is tracked in `maps/issue-territory.md` and the Campaign Map project.',
+    '- Blurry territory starts in `needs-triage` and moves to `ready-to-engage` after a scoped battle plan exists.',
+    '- Unmapped territory should become a GitHub issue before implementation unless it is a tiny local War Room maintenance task.',
+    '',
+    '## Specialist Context',
+    ''
+  );
 
   for (const repo of manifest.repos) {
     const resourcesList = resourceNames(repo.specialist.context.resources, resources);

@@ -44,6 +44,10 @@ function printBootstrap(output: Output, result: BootstrapResult) {
   for (const repo of result.repos) {
     output(`${repo.state} ${repo.repo} -> ${repo.path}${repo.detail ? ` (${repo.detail})` : ''}`);
   }
+  output(`Resource proposals: ${result.resourceProposals.length}${result.proposalsApplied ? ' (applied)' : ''}`);
+  for (const proposal of result.resourceProposals) {
+    output(`proposal ${proposal.action} ${proposal.repo}:${proposal.resource} (${proposal.reason})`);
+  }
 }
 
 function printSync(output: Output, result: SyncResult) {
@@ -70,6 +74,14 @@ function printIssueList(output: Output, result: IssueListResult) {
 function printIssueHandoff(output: Output, result: IssueHandoffResult) {
   output(`Adapter: ${result.adapterCommand}${result.launched ? ' (launched)' : ' (not launched)'}`);
   if (result.artifact) output(`Artifact: ${result.artifact.runDir}`);
+  if (result.contextSummary) {
+    output(`Context size: ${result.contextSummary.promptCharacters} chars`);
+    if (result.contextSummary.changedFiles !== undefined) output(`Changed files: ${result.contextSummary.changedFiles}`);
+    if (result.contextSummary.comments !== undefined) output(`Comments: ${result.contextSummary.comments}`);
+    if (result.contextSummary.reviews !== undefined) output(`Reviews: ${result.contextSummary.reviews}`);
+    if (result.contextSummary.checks !== undefined) output(`Checks: ${result.contextSummary.checks}`);
+    if (result.contextSummary.checkInMinutes !== undefined) output(`Check-in: ${result.contextSummary.checkInMinutes} minutes`);
+  }
   if (result.campaignStatus) {
     output(`Campaign status: ${result.campaignStatus.applied ? 'updated' : 'planned'} ${result.campaignStatus.issue} -> ${result.campaignStatus.status}`);
   }
@@ -80,6 +92,14 @@ function printPrPlan(output: Output, result: PrPlanResult) {
   output(`PR ${result.action}: ${result.launched ? 'launched' : 'preflight only'}`);
   if (result.adapterCommand) output(`Adapter: ${result.adapterCommand}`);
   if (result.artifact) output(`Artifact: ${result.artifact.runDir}`);
+  if (result.contextSummary) {
+    output(`Context size: ${result.contextSummary.promptCharacters} chars`);
+    if (result.contextSummary.changedFiles !== undefined) output(`Changed files: ${result.contextSummary.changedFiles}`);
+    if (result.contextSummary.comments !== undefined) output(`Comments: ${result.contextSummary.comments}`);
+    if (result.contextSummary.reviews !== undefined) output(`Reviews: ${result.contextSummary.reviews}`);
+    if (result.contextSummary.checks !== undefined) output(`Checks: ${result.contextSummary.checks}`);
+    if (result.contextSummary.checkInMinutes !== undefined) output(`Check-in: ${result.contextSummary.checkInMinutes} minutes`);
+  }
   if (result.mergeReadiness) {
     output(`Merge readiness: ${result.mergeReadiness.blocked.length === 0 ? 'clear' : 'blocked'}`);
     for (const blocker of result.mergeReadiness.blocked) output(`blocked: ${blocker}`);
@@ -122,7 +142,8 @@ function printCommitCreate(output: Output, result: CommitCreateResult) {
 function printAbort(output: Output, result: AbortResult) {
   for (const message of result.messages) output(message);
   for (const repo of result.repos) {
-    output(`${repo.repo}: ${repo.checkedOut ? 'present' : 'missing'} ${repo.branch ?? 'no-branch'}@${repo.headSha ?? 'unknown'}${repo.dirty ? ' dirty' : ' clean'}`);
+    const mutation = repo.reset ? ' reset' : repo.stashed ? ' stashed' : '';
+    output(`${repo.repo}: ${repo.checkedOut ? 'present' : 'missing'} ${repo.branch ?? 'no-branch'}@${repo.headSha ?? 'unknown'}${repo.dirty ? ' dirty' : ' clean'}${mutation}`);
     for (const command of repo.recoveryCommands) output(`  ${command}`);
   }
 }
@@ -280,27 +301,57 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .description('Validate or update repo specialist/resource assignments and regenerate the campaign atlas.')
     .option('--repo <id>', 'Repo id to update.')
     .option('--sergeant <name>', 'Set the repo Sergeant name.')
+    .option('--add-framework <name>', 'Add a framework to the repo specialist context.', collect, [])
+    .option('--remove-framework <name>', 'Remove a framework from the repo specialist context.', collect, [])
+    .option('--add-domain <name>', 'Add a domain to the repo specialist context.', collect, [])
+    .option('--remove-domain <name>', 'Remove a domain from the repo specialist context.', collect, [])
     .option('--add-resource <id>', 'Add a resource id to the repo allowlist.', collect, [])
     .option('--remove-resource <id>', 'Remove a resource id from the repo allowlist.', collect, [])
+    .option('--resource-id <id>', 'Create or update a logical resource definition.')
+    .option('--resource-type <type>', 'Resource type for --resource-id, such as docs, cli, mcp, api, or app.')
+    .option('--resource-name <name>', 'Human-readable resource name for --resource-id.')
+    .option('--resource-description <text>', 'Safe non-secret description for --resource-id.')
+    .option('--resource-docs-url <url>', 'Public docs URL for --resource-id.')
     .option('--write', 'Write repos.yaml and regenerate maps/campaign-atlas.md.')
     .option('--check', 'Validate assignments and atlas state.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { repo?: string; sergeant?: string; addResource?: string[]; removeResource?: string[]; write?: boolean; check?: boolean; json?: boolean }) => {
+    .action(
+      (opts: {
+        repo?: string;
+        sergeant?: string;
+        addFramework?: string[];
+        removeFramework?: string[];
+        addDomain?: string[];
+        removeDomain?: string[];
+        addResource?: string[];
+        removeResource?: string[];
+        resourceId?: string;
+        resourceType?: string;
+        resourceName?: string;
+        resourceDescription?: string;
+        resourceDocsUrl?: string;
+        write?: boolean;
+        check?: boolean;
+        json?: boolean;
+      }) => {
       const result = runMapsAssign(workspaceRoot, opts);
       if (opts.json) {
         printJson(output, result);
         return;
       }
       printMapsAssign(output, result);
-    });
+    }
+    );
 
   program
     .command('bootstrap')
     .description('Clone missing child repos under maps/repos and verify required tools.')
     .option('--dry-run', 'Show clone actions without running them.')
     .option('--include-planned', 'Include planned repos.')
+    .option('--write-proposals', 'Write inferred resource registry and repo allowlist proposals. Requires --confirm.')
+    .option('--confirm', 'Confirm proposal writes when used with --write-proposals.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { dryRun?: boolean; includePlanned?: boolean; json?: boolean }) => {
+    .action((opts: { dryRun?: boolean; includePlanned?: boolean; writeProposals?: boolean; confirm?: boolean; json?: boolean }) => {
       const result = runBootstrap(workspaceRoot, opts);
       if (opts.json) {
         printJson(output, result);
@@ -386,16 +437,17 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .option('--label <label>', 'Label used for triage listing.', 'needs-triage')
     .option('--mark-ready', 'Preview or move the issue to ready-to-engage after triage.')
     .option('--confirm-status', 'Apply the Campaign Map status movement requested by --mark-ready.')
+    .option('--dry-run', 'Print the structured handoff without launching the configured LLM adapter.')
     .option('--launch', 'Launch the configured LLM adapter. Defaults to dry-run handoff output.')
     .option('--write-artifact', 'Write prompt/input artifacts under .warroom/runs.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { issue?: string; label?: string; markReady?: boolean; confirmStatus?: boolean; launch?: boolean; writeArtifact?: boolean; json?: boolean }) => {
+    .action((opts: { issue?: string; label?: string; markReady?: boolean; confirmStatus?: boolean; dryRun?: boolean; launch?: boolean; writeArtifact?: boolean; json?: boolean }) => {
       const result = runIssueTriage(workspaceRoot, {
         issue: opts.issue,
         label: opts.label,
         markReady: opts.markReady,
         confirmStatus: opts.confirmStatus,
-        dryRun: !opts.launch,
+        dryRun: opts.dryRun ?? !opts.launch,
         writeArtifact: opts.writeArtifact,
       });
       if (opts.json) {
@@ -424,14 +476,17 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .command('engage')
     .description('Create a scoped PR engagement preflight handoff from an issue.')
     .requiredOption('--issue <owner/repo#number>', 'Issue to implement.')
+    .option('--base <branch>', 'Target branch for the eventual PR.', 'main')
+    .option('--dry-run', 'Print the structured handoff without launching the configured LLM adapter.')
     .option('--launch', 'Launch the configured LLM adapter. Defaults to dry-run handoff output.')
     .option('--confirm-status', 'Move the issue to battlefield-active on the Campaign Map.')
     .option('--write-artifact', 'Write prompt/input artifacts under .warroom/runs.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { issue: string; launch?: boolean; confirmStatus?: boolean; writeArtifact?: boolean; json?: boolean }) => {
+    .action((opts: { issue: string; base?: string; dryRun?: boolean; launch?: boolean; confirmStatus?: boolean; writeArtifact?: boolean; json?: boolean }) => {
       const result = runPrEngage(workspaceRoot, {
         issue: opts.issue,
-        dryRun: !opts.launch,
+        base: opts.base,
+        dryRun: opts.dryRun ?? !opts.launch,
         confirmStatus: opts.confirmStatus,
         writeArtifact: opts.writeArtifact,
       });
@@ -446,15 +501,18 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .description('Create a scoped PR review-loop handoff.')
     .requiredOption('--pr <owner/repo#number>', 'PR to review.')
     .option('--issue <owner/repo#number>', 'Linked issue to move to skirmish.')
+    .option('--dry-run', 'Print the structured handoff and context summary without launching the configured LLM adapter.')
     .option('--launch', 'Launch the configured LLM adapter. Defaults to dry-run handoff output.')
+    .option('--check-in-minutes <minutes>', 'Review-loop check-in interval for the handoff.', (value) => Number(value), 60)
     .option('--confirm-status', 'Move the linked issue to skirmish on the Campaign Map.')
     .option('--write-artifact', 'Write prompt/input artifacts under .warroom/runs.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { pr: string; issue?: string; launch?: boolean; confirmStatus?: boolean; writeArtifact?: boolean; json?: boolean }) => {
+    .action((opts: { pr: string; issue?: string; dryRun?: boolean; launch?: boolean; checkInMinutes?: number; confirmStatus?: boolean; writeArtifact?: boolean; json?: boolean }) => {
       const result = runPrReview(workspaceRoot, {
         pr: opts.pr,
         issue: opts.issue,
-        dryRun: !opts.launch,
+        dryRun: opts.dryRun ?? !opts.launch,
+        checkInMinutes: opts.checkInMinutes,
         confirmStatus: opts.confirmStatus,
         writeArtifact: opts.writeArtifact,
       });
@@ -536,8 +594,10 @@ export function buildProgram(options: { cwd?: string; output?: Output } = {}) {
     .option('--print-recovery', 'Print recovery commands without mutation.')
     .option('--stash', 'Stash dirty work in mapped repos. Requires --confirm.')
     .option('--confirm', 'Confirm the requested non-destructive mutation, such as --stash.')
+    .option('--danger-reset', 'Destructive last-resort reset and clean for dirty mapped repos. Requires --confirm-danger.')
+    .option('--confirm-danger <phrase>', 'Exact required phrase for --danger-reset: "discard local work".')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { stash?: boolean; confirm?: boolean; json?: boolean }) => {
+    .action((opts: { stash?: boolean; confirm?: boolean; dangerReset?: boolean; confirmDanger?: string; json?: boolean }) => {
       const result = runAbort(workspaceRoot, opts);
       if (opts.json) {
         printJson(output, result);

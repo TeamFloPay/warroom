@@ -3,6 +3,7 @@ import { createRunArtifact, type RunArtifact } from '../lib/artifacts.js';
 import { listCampaignIssuesByStatus, setCampaignStatus, type CampaignStatusSetResult } from '../lib/campaign.js';
 import { getAdapterCommand } from '../lib/env.js';
 import { loadRepoManifest } from '../lib/repos.js';
+import { buildSpecialistContext } from '../lib/specialist-context.js';
 
 export type IssueRef = {
   repo: string;
@@ -30,6 +31,14 @@ export type IssueHandoffResult = {
   launched: boolean;
   adapterCommand: string;
   campaignStatus: CampaignStatusSetResult | null;
+  contextSummary: {
+    promptCharacters: number;
+    changedFiles?: number;
+    comments?: number;
+    reviews?: number;
+    checks?: number;
+    checkInMinutes?: number;
+  };
 };
 
 export type IssueTriageOptions = {
@@ -93,7 +102,7 @@ function issueContext(ref: IssueRef) {
   );
 }
 
-function buildTriagePrompt(ref: IssueRef) {
+function buildTriagePrompt(workspaceRoot: string, ref: IssueRef) {
   const issue = issueContext(ref);
   const labels = labelsFromGh(issue.labels ?? []);
   return [
@@ -102,6 +111,8 @@ function buildTriagePrompt(ref: IssueRef) {
     `Title: ${issue.title ?? 'unknown'}`,
     `URL: ${issue.url ?? `https://github.com/${ref.repo}/issues/${ref.number}`}`,
     `Labels: ${labels.length ? labels.join(', ') : 'none'}`,
+    '',
+    buildSpecialistContext(workspaceRoot, ref.repo),
     '',
     'Goal:',
     '- Clarify the problem, acceptance criteria, owner repo, risk, dependencies, and validation commands.',
@@ -140,7 +151,7 @@ export function runIssueTriage(workspaceRoot: string, options: IssueTriageOption
   }
 
   const ref = parseIssueRef(options.issue);
-  const prompt = buildTriagePrompt(ref);
+  const prompt = buildTriagePrompt(workspaceRoot, ref);
   const artifact = options.writeArtifact
     ? createRunArtifact(workspaceRoot, 'issue-triage', {
         'prompt.md': prompt,
@@ -151,11 +162,12 @@ export function runIssueTriage(workspaceRoot: string, options: IssueTriageOption
   const campaignStatus = options.markReady
     ? setCampaignStatus(options.issue, 'ready-to-engage', { confirm: options.confirmStatus })
     : null;
+  const contextSummary = { promptCharacters: prompt.length };
 
   if (options.dryRun !== false) {
-    return { prompt, artifact, launched: false, adapterCommand, campaignStatus };
+    return { prompt, artifact, launched: false, adapterCommand, campaignStatus, contextSummary };
   }
 
   const launched = spawnSync(adapterCommand, [], { input: prompt, stdio: ['pipe', 'inherit', 'inherit'] }).status === 0;
-  return { prompt, artifact, launched, adapterCommand, campaignStatus };
+  return { prompt, artifact, launched, adapterCommand, campaignStatus, contextSummary };
 }

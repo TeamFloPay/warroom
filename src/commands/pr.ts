@@ -2519,10 +2519,10 @@ First, add the eyes (👀) emoji to the comment to show you're currently working
 
 Second, review the feedback and grill-me for additional context to complete the work. If a code change is required, please implement an update.
 
-Finally, once complete, replace the eyes (👀) emoji with either:
+Finally, once complete, replace the eyes (👀) emoji with the feedback comment:
 
--  Green Tick (✅) emoji with a reply to the comment about what was changed in the code to address the issue
--  Red Cross (❌) emoji with a reply to the comment explaining why it was not valid
+-  Change made: reply to the comment about what was changed in the code to address the issue
+-  Skipped: with a reply to the comment explaining why it was not valid or no implementation required
 
 Once all comments are complete and you've looped through all outstanding feedback, please commit the code into the PR branch.`;
 }

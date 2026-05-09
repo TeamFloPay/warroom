@@ -324,7 +324,7 @@ function normalizeIssueCreateDraft(workspaceRoot: string, raw: unknown): { draft
   if (!title) return { draft: null, error: 'Issue draft is missing title.' };
   if (!body) return { draft: null, error: 'Issue draft is missing body.' };
 
-  const workflowLabels = new Set(CAMPAIGN_LABELS.map((label) => label.name));
+  const workflowLabels = new Set<string>(CAMPAIGN_LABELS.map((label) => label.name));
   const requestedLabels = stringArray(record.labels).filter((label) => !workflowLabels.has(label));
   const ally = allyForIssueRepo(workspaceRoot, repo);
   const labels = uniqueStrings(['needs-triage', ...requestedLabels, ...(ally ? ['ally', ally.id] : [])]);

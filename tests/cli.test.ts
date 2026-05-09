@@ -349,6 +349,57 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('creates a needs-triage issue from an interactive PM draft and can flow into triage', async () => {
+    const root = makeDevFixture();
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeIssueCreateGhFixture(bin);
+    writeIssueCreateCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+
+    try {
+      const lines: string[] = [];
+      const input = new PassThrough();
+      const program = buildProgram({ cwd: root, output: (line) => lines.push(line), input, interactive: true });
+
+      const answers = ['yes\n', 'yes\n'];
+      const promptAnswers = setInterval(() => {
+        const answer = answers.shift();
+        if (answer) input.write(answer);
+        else clearInterval(promptAnswers);
+      }, 100);
+      try {
+        await program.parseAsync(['node', 'warroom', 'issue', 'create']);
+      } finally {
+        clearInterval(promptAnswers);
+        input.end();
+      }
+
+      expect(lines).toContain('Issue create: draft ready');
+      expect(lines.some((line) => line.includes('War Room issue creation PM session'))).toBe(false);
+      expect(lines).toContain('Repo: TeamFloPay/sdk');
+      expect(lines).toContain('Title: Report checkout settlement confusion');
+      expect(lines).toContain('Issue type: Bug');
+      expect(lines).toContain('Labels: needs-triage, checkout');
+      expect(lines).toContain('Create this GitHub issue now? [y/N]');
+      expect(lines).toContain('Issue create: created');
+      expect(lines).toContain('URL: https://github.com/TeamFloPay/sdk/issues/123');
+      expect(lines).toContain('Issue type: updated TeamFloPay/sdk#123 -> Bug');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#123 -> needs-triage');
+      expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#123 +needs-triage');
+      expect(lines).toContain('Outcome: issue created and queued for triage.');
+      expect(lines).toContain('Run `warroom issue triage --issue TeamFloPay/sdk#123` now? [y/N]');
+      expect(lines).toContain('Triaging TeamFloPay/sdk#123');
+      expect(lines).toContain('Triage notes: ready https://github.com/TeamFloPay/sdk/issues/123#issuecomment-triage');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#123 -> ready-to-engage');
+      expect(lines.at(-1)).toBe('Outcome: interactive issue triage session completed. Campaign status updated to ready-to-engage.');
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   it('selects a triage issue and launches a scoped triage handoff', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');
@@ -3162,6 +3213,147 @@ process.exit(1);
   chmodSync(ghPath, 0o755);
 }
 
+function writeIssueCreateGhFixture(bin: string) {
+  const ghPath = path.join(bin, 'gh');
+  writeFileSync(
+    ghPath,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const { existsSync, readFileSync } = require('node:fs');
+const path = require('node:path');
+const triageNotesPath = path.join(path.dirname(process.argv[1]), 'triage-notes-posted');
+
+function json(value) {
+  process.stdout.write(JSON.stringify(value));
+}
+
+function optionValue(name) {
+  const index = args.indexOf(name);
+  return index === -1 ? undefined : args[index + 1];
+}
+
+function valueFor(name) {
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (args[index] !== '-f' && args[index] !== '-F') continue;
+    const [key, value] = args[index + 1].split('=');
+    if (key === name) return value;
+  }
+}
+
+if (args[0] === 'issue' && args[1] === 'create') {
+  const repo = optionValue('--repo');
+  const title = optionValue('--title');
+  const body = readFileSync(0, 'utf8');
+  if (repo !== 'TeamFloPay/sdk' || title !== 'Report checkout settlement confusion' || !body.includes('Customer support needs a clear issue')) {
+    process.stderr.write('unexpected issue create payload');
+    process.exit(1);
+  }
+  process.stdout.write('https://github.com/TeamFloPay/sdk/issues/123');
+  process.exit(0);
+}
+
+if (args[0] === 'issue' && args[1] === 'view' && args[2] === '123') {
+  const comments = existsSync(triageNotesPath)
+    ? [
+        {
+          author: { login: 'andrewslack' },
+          body: [
+            '## War Room triage notes',
+            '',
+            'Ready for ready-to-engage: yes',
+            '',
+            'Owner repo: TeamFloPay/sdk'
+          ].join('\\n'),
+          createdAt: '2026-05-08T10:00:00Z',
+          url: 'https://github.com/TeamFloPay/sdk/issues/123#issuecomment-triage'
+        }
+      ]
+    : [];
+  json({
+    title: 'Report checkout settlement confusion',
+    body: 'Customer support needs a clear issue for checkout settlement confusion.',
+    url: 'https://github.com/TeamFloPay/sdk/issues/123',
+    labels: [{ name: 'needs-triage' }],
+    comments
+  });
+  process.exit(0);
+}
+
+if (args[0] === 'issue' && args[1] === 'edit') {
+  process.exit(0);
+}
+
+if (args[0] === 'project' && args[1] === 'view') {
+  json({ id: 'PVT_campaign', title: 'Campaign Map' });
+  process.exit(0);
+}
+
+if (args[0] === 'project' && args[1] === 'field-list') {
+  json({
+    fields: [
+      {
+        id: 'PVTSSF_status',
+        name: 'Status',
+        type: 'ProjectV2SingleSelectField',
+        options: [
+          { id: 'status_needs', name: 'needs-triage' },
+          { id: 'status_ready', name: 'ready-to-engage' },
+          { id: 'status_active', name: 'battlefield-active' },
+          { id: 'status_skirmish', name: 'skirmish' },
+          { id: 'status_blockaded', name: 'blockaded' },
+          { id: 'status_victory', name: 'victory' }
+        ]
+      }
+    ]
+  });
+  process.exit(0);
+}
+
+if (args[0] === 'project' && args[1] === 'item-list') {
+  json({ items: [] });
+  process.exit(0);
+}
+
+if (args[0] === 'project' && args[1] === 'item-add') {
+  json({ id: 'PVTI_created' });
+  process.exit(0);
+}
+
+if (args[0] === 'project' && args[1] === 'item-edit') {
+  process.exit(0);
+}
+
+if (args[0] === 'api' && args[1] === 'graphql') {
+  const query = valueFor('query') || '';
+  if (query.includes('IssueTypeLookup')) {
+    json({
+      data: {
+        repository: { issue: { id: 'I_created_123' } },
+        organization: {
+          issueTypes: {
+            nodes: [
+              { id: 'IT_bug', name: 'Bug', isEnabled: true },
+              { id: 'IT_task', name: 'Task', isEnabled: true }
+            ]
+          }
+        }
+      }
+    });
+    process.exit(0);
+  }
+  if (query.includes('UpdateIssueType')) {
+    json({ data: { updateIssueIssueType: { issue: { number: 123, issueType: { name: 'Bug' } } } } });
+    process.exit(0);
+  }
+}
+
+console.error('Unexpected gh fixture call: ' + args.join(' '));
+process.exit(1);
+`
+  );
+  chmodSync(ghPath, 0o755);
+}
+
 function writePrReviewLoopGhFixture(
   bin: string,
   stateFile: string,
@@ -3884,6 +4076,47 @@ process.stdin.on('end', () => {
   }
   process.exit(0);
 });
+`
+  );
+  chmodSync(codexPath, 0o755);
+}
+
+function writeIssueCreateCodexFixture(bin: string) {
+  const codexPath = path.join(bin, 'codex');
+  writeFileSync(
+    codexPath,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const prompt = process.argv[process.argv.length - 1] || '';
+if (prompt.includes('War Room issue creation PM session')) {
+  const match = prompt.match(/Write the final draft JSON to exactly: (.+)/);
+  if (!match) {
+    process.stderr.write('draft path missing from prompt');
+    process.exit(1);
+  }
+  fs.writeFileSync(match[1], JSON.stringify({
+    repo: 'TeamFloPay/sdk',
+    title: 'Report checkout settlement confusion',
+    body: [
+      '## Business Context',
+      'Customer support needs a clear issue for checkout settlement confusion.',
+      '',
+      '## Desired Outcome',
+      'Operators can explain the customer-visible payment state before technical triage starts.',
+      '',
+      '## Known Constraints',
+      '- Keep client-sensitive details out of the issue.'
+    ].join('\\n'),
+    labels: ['checkout'],
+    issueType: 'Bug',
+    assignees: [],
+    milestone: null
+  }));
+  process.exit(0);
+}
+fs.writeFileSync(path.join(path.dirname(process.argv[1]), 'triage-notes-posted'), '1');
+process.exit(0);
 `
   );
   chmodSync(codexPath, 0o755);

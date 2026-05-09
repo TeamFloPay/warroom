@@ -53,6 +53,7 @@ npm run warroom -- campaign status-check
 npm run warroom -- campaign labels
 npm run warroom -- allies status
 npm run warroom -- maps study
+npm run warroom -- issue create
 npm run warroom -- issue next
 ```
 
@@ -78,7 +79,15 @@ warroom campaign status-check
 warroom campaign labels
 ```
 
-2. Triage the existing issue.
+2. Create a new issue when the work is not already tracked.
+
+```sh
+warroom issue create
+```
+
+In an interactive terminal, `issue create` launches a PM-style Codex session that uses light `@grill-me` questioning to capture business scope, not technical implementation detail. The adapter writes a structured issue draft under `.warroom/runs/*`; War Room previews the repo, title, body, labels, and issue type, then asks before creating the GitHub issue. Confirmed creates add the issue to the Campaign Map as `needs-triage`, apply the `needs-triage` workflow label plus ally labels when the target is an ally issue repo, and best-effort set the GitHub issue type through GraphQL. After printing the issue URL and `Outcome:` line, War Room asks whether to start `warroom issue triage` for the new issue.
+
+3. Triage the existing issue.
 
 ```sh
 warroom issue triage
@@ -87,7 +96,7 @@ warroom issue triage --issue "$ISSUE" --launch --mark-ready --confirm-status --w
 
 In an interactive terminal, `issue triage` prints numbered `needs-triage` Campaign Map items and lets you choose one to launch the scoped triage handoff in the Codex TUI, so `@grill-me` questions can be answered directly. Triage handoffs are planning-only: they may do read-only investigation, ask questions, and post final triage notes back to the GitHub issue, but must not edit code, create branches, commit, or open PRs. War Room starts Codex with workspace-write sandboxing plus outbound network access for read-only API checks. Add `--dry-run` to preview the selected handoff without launching. With `--issue`, it builds that handoff directly with repo specialist context and previews by default unless `--launch` is passed. Ally issue repos fall back to the matching `allies.yaml` checkout when they are not in `repos.yaml`. After an interactive selected triage session exits successfully, War Room checks for a new issue comment starting `## War Room triage notes` with `Ready for ready-to-engage: yes`; only then does it move the Campaign status to `ready-to-engage` and replace the workflow label. Direct `--issue --launch` handoffs still require `--mark-ready --confirm-status` for that closeout. The command ends with an explicit `Outcome:` line for completed, dry-run, blocked, or not-ready handoffs.
 
-3. Start implementation from the ready issue.
+4. Start implementation from the ready issue.
 
 Interactive selection:
 
@@ -103,7 +112,7 @@ warroom issue next --issue "$ISSUE" --base "$BASE" --confirm-status --write-arti
 
 The implementation handoff creates and checks out a GitHub-linked development branch in the owning child repo with `gh issue develop`, uses the issue body and discussion as accepted context, and moves the issue to `battlefield-active` with the matching workflow label when status movement is confirmed. The handoff also tells the implementer to include `Closes <issue>` in the PR body so GitHub links the PR and closes the issue on merge.
 
-4. Work in the owning child repo and validate there.
+5. Work in the owning child repo and validate there.
 
 ```sh
 cd ../backend
@@ -113,7 +122,7 @@ npm test
 
 Use the child repo's own `AGENTS.md`, package manager, and validation commands. Product code belongs in the child repo, not War Room.
 
-5. Create and push the implementation commit.
+6. Create and push the implementation commit.
 
 ```sh
 warroom commit create --validate "npm test" --write-artifact
@@ -121,7 +130,7 @@ warroom commit create --validate "npm test" --write-artifact
 
 When run interactively from a mapped child checkout, `commit create` first prints a dry run, then asks before staging, committing, and pushing to the remote branch. After a successful commit, it posts a compact commit progress comment to the linked source issue, then asks whether to run `warroom pr create` next so the PR can be opened immediately. From War Room root, it can infer the target repo from the single active mapped development branch written by `issue next`; pass `--repo <id>` when more than one child repo could match.
 
-6. Publish the PR on GitHub.
+7. Publish the PR on GitHub.
 
 ```sh
 warroom pr create --confirm --confirm-status --write-artifact
@@ -129,7 +138,7 @@ warroom pr create --confirm --confirm-status --write-artifact
 
 Run this from the development branch in the owning child repo, or pass `--branch <name>`. `pr create` first uses branch metadata written by `issue next`, then falls back to inferring `TeamFloPay/backend#562` from a `warroom/562-...` branch. It asks the LLM adapter to draft a PR title/body from the actual branch commits and diff, includes `Closes <issue>`, pushes the branch, creates the GitHub PR, posts the generated PR summary to the linked source issue, and moves the issue plus workflow label to `skirmish` when `--confirm-status` is present. Large diffs are summarized across multiple adapter chunk calls before the final PR text prompt instead of being clipped from the prompt. If the adapter fails, War Room falls back to a local issue/commit summary. After a successful interactive create, War Room asks whether to run `warroom pr review` for the new PR.
 
-7. Move into the review loop.
+8. Move into the review loop.
 
 ```sh
 warroom pr review
@@ -138,7 +147,7 @@ warroom pr review --pr TeamFloPay/backend#655 --issue "$ISSUE" --launch --confir
 
 Without `--pr`, `pr review` lists open PRs linked from issues in `battlefield-active` or `skirmish`, ordered by latest update. If that Campaign queue is empty and the command is run inside a mapped child repo branch with a single open PR, it falls back to that current-branch PR. In an interactive terminal it asks whether to launch the detected PR review handoff, using the selected PR as if `--pr <owner/repo#number> --launch` was passed. When launched from the `pr create` follow-up prompt, it first waits for CodeRabbit to appear and settle on the initial PR commit; if no outstanding CodeRabbit feedback remains, it exits complete without an adapter run. Non-interactive fallback runs print the current-branch PR preflight. With `--pr --launch`, it sends the fixed GitHub/CodeRabbit feedback handoff to the adapter with the current review-thread IDs, waits for a new PR commit, waits for CodeRabbit to appear and settle on that commit, checks outstanding current CodeRabbit comments, verifies that handled CodeRabbit threads have `Change made:` or `Skipped:` replies, and repeats the adapter loop until no CodeRabbit feedback remains or the loop blocks. It resolves the linked issue from queue selection, branch metadata, or the PR body closing line, so ally-source issues can still move to `skirmish` when confirmed.
 
-8. Finish through the merge gate when review is clear.
+9. Finish through the merge gate when review is clear.
 
 From the PR branch in the child repo, War Room can infer the PR:
 
@@ -171,6 +180,7 @@ npm run warroom -- campaign status-check
 npm run warroom -- campaign labels
 npm run warroom -- maps study
 npm run warroom -- maps assign --check
+npm run warroom -- issue create
 npm run warroom -- issue triage
 npm run warroom -- issue next
 npm run warroom -- abort --print-recovery

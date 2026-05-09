@@ -3048,6 +3048,66 @@ function gitStatusPaths(repoPath: string) {
     .map((line) => line.slice(3).trim().replace(/^"|"$/g, ''));
 }
 
+function gitHeadSha(repoPath: string) {
+  const head = runGit(repoPath, ['rev-parse', 'HEAD']);
+  if (head.status !== 0) throw new Error(head.stderr || 'Could not read local git HEAD.');
+  return head.stdout;
+}
+
+function gitHeadShaOrNull(repoPath: string) {
+  const head = runGit(repoPath, ['rev-parse', 'HEAD']);
+  return head.status === 0 && head.stdout ? head.stdout : null;
+}
+
+function gitCurrentBranch(repoPath: string) {
+  const branch = runGit(repoPath, ['branch', '--show-current']);
+  if (branch.status !== 0) throw new Error(branch.stderr || 'Could not read local git branch.');
+  return branch.stdout || null;
+}
+
+function publishAdapterReviewChanges(
+  repoPath: string,
+  branchName: string | null,
+  previousHeadSha: string,
+  previousLocalHeadSha: string | null,
+  reviewStatus: ((message: string) => void) | undefined
+) {
+  if (!previousLocalHeadSha) return { changed: false, error: null };
+  const branch = branchName || gitCurrentBranch(repoPath);
+  if (!branch) return { changed: false, error: 'Could not determine PR branch name for review changes.' };
+
+  const dirtyFiles = gitStatusPaths(repoPath);
+  let committedDirtyFiles = false;
+  if (dirtyFiles.length > 0) {
+    reviewStatus?.(
+      `PR review loop: adapter left ${dirtyFiles.length} changed file${
+        dirtyFiles.length === 1 ? '' : 's'
+      }; committing them before waiting for CodeRabbit.`
+    );
+    const add = runGit(repoPath, ['add', '-A']);
+    if (add.status !== 0) {
+      return { changed: false, error: add.stderr || `git add -A failed with exit ${add.status ?? 'unknown'}.` };
+    }
+
+    const commit = runGit(repoPath, ['commit', '-m', 'fix: address CodeRabbit review feedback']);
+    if (commit.status !== 0) {
+      return { changed: false, error: commit.stderr || `git commit failed with exit ${commit.status ?? 'unknown'}.` };
+    }
+    committedDirtyFiles = true;
+  }
+
+  const headSha = gitHeadSha(repoPath);
+  if (!committedDirtyFiles && headSha === previousLocalHeadSha) return { changed: false, error: null };
+  if (headSha === previousHeadSha) return { changed: false, error: null };
+
+  reviewStatus?.(`PR review loop: pushing review commit ${shortSha(headSha)} to ${branch}.`);
+  const push = runGit(repoPath, ['push', 'origin', `HEAD:${branch}`]);
+  if (push.status !== 0) {
+    return { changed: false, error: push.stderr || `git push origin HEAD:${branch} failed with exit ${push.status ?? 'unknown'}.` };
+  }
+  return { changed: true, error: null };
+}
+
 async function runMergeChangelog(
   workspaceRoot: string,
   plan: MergeChangelogResult,
@@ -3682,6 +3742,7 @@ async function runCodeRabbitPrReviewLoop(
     }
     const prompt = buildCodeRabbitPrReviewPrompt(prUrl, ref, threadsForPrompt, options.issue ?? null);
     options.reviewStatus?.(`PR review loop ${index}: launching adapter for ${ref.repo}#${ref.number}.`);
+    const localHeadBeforeAdapter = gitHeadShaOrNull(adapterCwd);
     const launch = runAdapter(workspaceRoot, prompt, { cwd: adapterCwd });
     adapterCommand = launch.invocation.display;
     const iteration: PrReviewLoopResult['iterations'][number] = {
@@ -3704,6 +3765,24 @@ async function runCodeRabbitPrReviewLoop(
         launched: launchedAny,
         adapterCommand,
         launchError: error,
+      };
+    }
+
+    const published = publishAdapterReviewChanges(
+      adapterCwd,
+      initialSnapshot.headRefName ?? null,
+      currentHeadSha,
+      localHeadBeforeAdapter,
+      options.reviewStatus
+    );
+    if (published.error) {
+      iteration.endHeadSha = currentHeadSha;
+      iterations.push(iteration);
+      return {
+        loop: { status: 'failed', completed: false, iterations, blocked: [published.error], error: published.error },
+        launched: true,
+        adapterCommand,
+        launchError: published.error,
       };
     }
 

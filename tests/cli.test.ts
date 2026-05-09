@@ -975,6 +975,60 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('commits and pushes adapter edits before waiting for CodeRabbit again', async () => {
+    const { root, sdk, sdkRemote } = makeCommitFixture();
+    const bin = path.join(root, 'bin');
+    const stateFile = path.join(root, 'review-state.txt');
+    mkdirSync(bin, { recursive: true });
+    writePrReviewLoopGhFixture(bin, stateFile, { queue: 'empty', outstandingFirst: false });
+    writePrReviewLoopDirtyCodexFixture(bin, stateFile);
+    writeFileSync(path.join(sdk, 'README.md'), '# SDK\n');
+    commitAll(sdk, 'fixture sdk');
+    const branch = spawnSync('git', ['switch', '-c', 'warroom/8-active-sdk-work'], { cwd: sdk, encoding: 'utf8' });
+    if (branch.status !== 0) throw new Error(branch.stderr);
+    const push = spawnSync('git', ['push', '-u', 'origin', 'warroom/8-active-sdk-work'], { cwd: sdk, encoding: 'utf8' });
+    if (push.status !== 0) throw new Error(push.stderr);
+    const beforeRemoteHead = spawnSync(
+      'git',
+      ['--git-dir', sdkRemote, 'rev-parse', 'refs/heads/warroom/8-active-sdk-work'],
+      { encoding: 'utf8' }
+    ).stdout.trim();
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    const restorePrReviewEnv = setFastPrReviewPolling();
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync(['node', 'warroom', 'pr', 'review', '--pr', 'TeamFloPay/sdk#12', '--launch']);
+
+      expect(lines).toContain('PR review loop: adapter left 1 changed file; committing them before waiting for CodeRabbit.');
+      expect(lines.some((line) => line.startsWith('PR review loop: pushing review commit '))).toBe(true);
+      expect(lines).toContain('PR review loop 1: no outstanding CodeRabbit feedback remains.');
+      expect(lines.at(-1)).toBe('Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
+
+      const status = spawnSync('git', ['status', '--short'], { cwd: sdk, encoding: 'utf8' });
+      expect(status.stdout.trim()).toBe('');
+      const afterRemoteHead = spawnSync(
+        'git',
+        ['--git-dir', sdkRemote, 'rev-parse', 'refs/heads/warroom/8-active-sdk-work'],
+        { encoding: 'utf8' }
+      ).stdout.trim();
+      expect(afterRemoteHead).not.toBe(beforeRemoteHead);
+      const lastCommit = spawnSync(
+        'git',
+        ['--git-dir', sdkRemote, 'log', '-1', '--pretty=%s', 'refs/heads/warroom/8-active-sdk-work'],
+        { encoding: 'utf8' }
+      );
+      expect(lastCommit.stdout.trim()).toBe('fix: address CodeRabbit review feedback');
+    } finally {
+      restorePrReviewEnv();
+      process.env.PATH = originalPath;
+    }
+  });
+
   it('includes visible CodeRabbit thread IDs in the PR review handoff', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');
@@ -3720,6 +3774,31 @@ try {
 } catch {
   count = 0;
 }
+writeFileSync(stateFile, String(count + 1));
+
+process.stdin.resume();
+process.stdin.on('end', () => process.exit(0));
+`
+  );
+  chmodSync(codexPath, 0o755);
+}
+
+function writePrReviewLoopDirtyCodexFixture(bin: string, stateFile: string) {
+  const codexPath = path.join(bin, 'codex');
+  writeFileSync(
+    codexPath,
+    `#!/usr/bin/env node
+const { readFileSync, writeFileSync } = require('node:fs');
+const path = require('node:path');
+const stateFile = ${JSON.stringify(stateFile)};
+
+let count = 0;
+try {
+  count = Number(readFileSync(stateFile, 'utf8').trim()) || 0;
+} catch {
+  count = 0;
+}
+writeFileSync(path.join(process.cwd(), 'review-fix.ts'), 'export const reviewFix = true;\\n');
 writeFileSync(stateFile, String(count + 1));
 
 process.stdin.resume();

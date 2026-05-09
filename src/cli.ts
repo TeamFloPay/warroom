@@ -161,6 +161,10 @@ function primaryIssueRef(pr: PrReviewQueueResult['prs'][number]) {
   return issue ? `${issue.repo}#${issue.number}` : undefined;
 }
 
+function shouldConfirmPrReviewStatus(dryRun: boolean, options: { confirmStatus?: boolean; status?: boolean }) {
+  return dryRun ? options.confirmStatus === true : options.status !== false || options.confirmStatus === true;
+}
+
 async function promptPrReviewSelection(output: Output, input: Input, prs: PrReviewQueueResult['prs']) {
   if (prs.length === 0) return null;
 
@@ -783,7 +787,7 @@ async function promptPrReviewAfterPrCreate(
   output: Output,
   input: Input,
   result: PrCreateResult,
-  options: { confirmStatus?: boolean; writeArtifact?: boolean }
+  options: { writeArtifact?: boolean }
 ) {
   if (!result.created) return;
   const prRef = prRefFromCreateResult(result);
@@ -797,7 +801,7 @@ async function promptPrReviewAfterPrCreate(
     pr: prRef,
     issue: result.issue ?? undefined,
     dryRun: false,
-    confirmStatus: options.confirmStatus,
+    confirmStatus: true,
     writeArtifact: options.writeArtifact,
     reviewStatus: output,
     waitForInitialCodeRabbit: true,
@@ -1438,7 +1442,6 @@ export function buildProgram(options: BuildProgramOptions = {}) {
 
       if (interactive && result.created) {
         await promptPrReviewAfterPrCreate(workspaceRoot, output, input, result, {
-          confirmStatus: opts.confirmStatus,
           writeArtifact: opts.writeArtifact,
         });
         return;
@@ -1471,7 +1474,6 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         });
         printPrCreate(output, created);
         await promptPrReviewAfterPrCreate(workspaceRoot, output, input, created, {
-          confirmStatus: opts.confirmStatus,
           writeArtifact: opts.writeArtifact,
         });
       } catch (error) {
@@ -1487,10 +1489,11 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--dry-run', 'Print the structured handoff and context summary without launching the configured LLM adapter.')
     .option('--launch', 'Launch the configured LLM adapter. Defaults to dry-run handoff output.')
     .option('--check-in-minutes <minutes>', 'Compatibility option; review polling is controlled by WARROOM_PR_REVIEW_* env vars.', (value) => Number(value), 60)
-    .option('--confirm-status', 'Move the linked issue to skirmish on the Campaign Map.')
+    .option('--confirm-status', 'Move the linked issue to skirmish on the Campaign Map. This is the default when launching review.')
+    .option('--no-status', 'Do not move the linked issue to skirmish.')
     .option('--write-artifact', 'Write prompt/input artifacts under .warroom/runs.')
     .option('--json', 'Print machine-readable output.')
-    .action(async (opts: { pr?: string; issue?: string; dryRun?: boolean; launch?: boolean; checkInMinutes?: number; confirmStatus?: boolean; writeArtifact?: boolean; json?: boolean }) => {
+    .action(async (opts: { pr?: string; issue?: string; dryRun?: boolean; launch?: boolean; checkInMinutes?: number; confirmStatus?: boolean; status?: boolean; writeArtifact?: boolean; json?: boolean }) => {
       if (!opts.pr) {
         const result = runPrReviewQueue();
         if (opts.json) {
@@ -1527,12 +1530,13 @@ export function buildProgram(options: BuildProgramOptions = {}) {
             }
           }
 
+          const dryRun = opts.dryRun === true ? true : !launch;
           const review = await runPrReview(workspaceRoot, {
             pr: inferredPr,
             issue: opts.issue ?? inferIssueRefForCurrentBranch(workspaceRoot, invocationCwd) ?? undefined,
-            dryRun: opts.dryRun === true ? true : !launch,
+            dryRun,
             checkInMinutes: opts.checkInMinutes,
-            confirmStatus: opts.confirmStatus,
+            confirmStatus: shouldConfirmPrReviewStatus(dryRun, opts),
             writeArtifact: opts.writeArtifact,
             reviewStatus: launch ? output : undefined,
           });
@@ -1554,7 +1558,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
           issue: opts.issue ?? primaryIssueRef(selected),
           dryRun: false,
           checkInMinutes: opts.checkInMinutes,
-          confirmStatus: opts.confirmStatus,
+          confirmStatus: shouldConfirmPrReviewStatus(false, opts),
           writeArtifact: opts.writeArtifact,
           reviewStatus: output,
         });
@@ -1563,12 +1567,13 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         return;
       }
 
+      const dryRun = opts.dryRun ?? !opts.launch;
       const result = await runPrReview(workspaceRoot, {
         pr: opts.pr,
-        issue: opts.issue,
-        dryRun: opts.dryRun ?? !opts.launch,
+        issue: opts.issue ?? inferIssueRefForCurrentBranch(workspaceRoot, invocationCwd) ?? undefined,
+        dryRun,
         checkInMinutes: opts.checkInMinutes,
-        confirmStatus: opts.confirmStatus,
+        confirmStatus: shouldConfirmPrReviewStatus(dryRun, opts),
         writeArtifact: opts.writeArtifact,
         reviewStatus: opts.json ? undefined : output,
       });

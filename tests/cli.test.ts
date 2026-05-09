@@ -902,6 +902,8 @@ describe('phase-1 CLI', () => {
       expect(lines.some((line) => line.startsWith('PR review loop: waiting for CodeRabbit feedback on the initial PR commit'))).toBe(true);
       expect(lines).toContain('PR review loop: no outstanding CodeRabbit feedback remains on the initial PR commit.');
       expect(lines).toContain('PR review: complete');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#7 -> skirmish');
+      expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#7 +skirmish; removed battlefield-active');
       expect(lines.at(-1)).toBe('Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
       expect(Number(readFileSync(`${stateFile}.polls`, 'utf8'))).toBeGreaterThanOrEqual(4);
     } finally {
@@ -994,6 +996,8 @@ describe('phase-1 CLI', () => {
       expect(lines).toContain('PR review loop 1: 1 outstanding CodeRabbit comment remains; starting another adapter loop.');
       expect(lines).toContain('PR review loop 2: no outstanding CodeRabbit feedback remains.');
       expect(lines).toContain('PR review: launched');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#8 -> skirmish');
+      expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#8 +skirmish; removed battlefield-active');
       expect(lines.some((line) => line.startsWith('Adapter: codex exec --model gpt-5.5 '))).toBe(true);
       expect(lines.some((line) => line.includes('Please analyze the latest [@coderabbit](plugin://coderabbit@openai-curated)'))).toBe(true);
       expect(lines.some((line) => line.includes('addPullRequestReviewThreadReply'))).toBe(true);
@@ -1168,6 +1172,8 @@ describe('phase-1 CLI', () => {
       );
       expect(lines).toContain('Starting PR review for TeamFloPay/backend#657');
       expect(lines).toContain('PR review: launched');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/backend#632 -> skirmish');
+      expect(lines).toContain('Issue labels: updated TeamFloPay/backend#632 +skirmish; removed battlefield-active');
       expect(lines).toContain('PR review loop 1: no outstanding CodeRabbit feedback remains.');
       expect(lines.some((line) => line.includes('PR https://github.com/TeamFloPay/backend/pull/657'))).toBe(true);
       expect(lines.at(-1)).toBe('Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
@@ -3596,6 +3602,11 @@ if (args[0] === 'project' && args[1] === 'item-list') {
   process.exit(0);
 }
 
+if (args[0] === 'project' && args[1] === 'item-add') {
+  json({ id: 'PVTI_added_for_review' });
+  process.exit(0);
+}
+
 if (args[0] === 'pr' && args[1] === 'list') {
   const repo = optionValue('--repo');
   const head = optionValue('--head');
@@ -3618,6 +3629,28 @@ if (args[0] === 'pr' && args[1] === 'create') {
   const repo = optionValue('--repo') || 'TeamFloPay/sdk';
   const number = repo === 'TeamFloPay/sdk' ? 12 : 657;
   process.stdout.write('https://github.com/' + repo + '/pull/' + number);
+  process.exit(0);
+}
+
+if (args[0] === 'issue' && args[1] === 'view') {
+  const repo = optionValue('--repo') || 'TeamFloPay/backend';
+  const number = Number(args[2]);
+  const labels =
+    repo === 'TeamFloPay/sdk' && number === 8
+      ? [{ name: 'battlefield-active' }]
+      : repo === 'TeamFloPay/demo' && number === 9
+        ? [{ name: 'skirmish' }]
+        : [{ name: 'battlefield-active' }];
+  json({
+    title: number === 632 ? 'Remove Recurly & Chargebee Support' : 'Review issue',
+    body: 'Review issue body.',
+    url: 'https://github.com/' + repo + '/issues/' + number,
+    labels
+  });
+  process.exit(0);
+}
+
+if (args[0] === 'issue' && args[1] === 'edit') {
   process.exit(0);
 }
 

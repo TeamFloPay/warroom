@@ -152,20 +152,31 @@ function firstTokenNumber(text: string, patterns: RegExp[]) {
   return null;
 }
 
+function codexTokenUsageLine(text: string) {
+  return text.match(/Token usage:[^\r\n]*/i)?.[0] ?? '';
+}
+
 function parseAdapterUsage(text: string): ParsedTokenUsage {
+  const codexUsage = codexTokenUsageLine(text);
   const inputTokens = firstTokenNumber(text, [
+    /\binput=([\d.,]+)/i,
     /\binput\s+tokens?\b[^0-9]*([\d.,]+)/i,
     /\bprompt\s+tokens?\b[^0-9]*([\d.,]+)/i,
   ]);
-  const cachedInputTokens = firstTokenNumber(text, [
+  const cachedInputTokens = firstTokenNumber(codexUsage, [
+    /\(\+\s*([\d.,]+)\s+cached\)/i,
+    /\bcached=([\d.,]+)/i,
+  ]) ?? firstTokenNumber(text, [
     /\bcached\s+input\s+tokens?\b[^0-9]*([\d.,]+)/i,
     /\bcached\s+tokens?\b[^0-9]*([\d.,]+)/i,
   ]);
   const outputTokens = firstTokenNumber(text, [
+    /\boutput=([\d.,]+)/i,
     /\boutput\s+tokens?\b[^0-9]*([\d.,]+)/i,
     /\bcompletion\s+tokens?\b[^0-9]*([\d.,]+)/i,
   ]);
   const totalTokens = firstTokenNumber(text, [
+    /\btotal=([\d.,]+)/i,
     /\btotal\s+tokens?\b[^0-9]*([\d.,]+)/i,
     /\btokens\s+used\b[^0-9]*([\d.,]+)/i,
   ]);
@@ -211,18 +222,63 @@ function entryCost(workspaceRoot: string, entry: Omit<LlmUsageEntry, 'costUsd' |
   if (!model) return { costUsd: null, costUnavailableReason: 'model unknown' };
   const price = pricing.models?.[model];
   if (!price) return { costUsd: null, costUnavailableReason: `pricing missing for ${model}` };
-  if (typeof price.inputPerMillion !== 'number') return { costUsd: null, costUnavailableReason: `input pricing missing for ${model}` };
-  if (typeof price.outputPerMillion !== 'number') return { costUsd: null, costUnavailableReason: `output pricing missing for ${model}` };
-  if (entry.inputTokens === null) return { costUsd: null, costUnavailableReason: 'input token count unknown' };
-  if (entry.outputTokens === null) return { costUsd: null, costUnavailableReason: 'output token count unknown' };
-  const cachedInputTokens = entry.cachedInputTokens ?? 0;
-  const uncachedInputTokens = Math.max(0, entry.inputTokens - cachedInputTokens);
-  const cachedRate = typeof price.cachedInputPerMillion === 'number' ? price.cachedInputPerMillion : price.inputPerMillion;
-  const cost =
-    (uncachedInputTokens / 1_000_000) * price.inputPerMillion +
-    (cachedInputTokens / 1_000_000) * cachedRate +
-    (entry.outputTokens / 1_000_000) * price.outputPerMillion;
-  return { costUsd: Number(cost.toFixed(6)), costUnavailableReason: null };
+
+  let cost = 0;
+  let pricedBuckets = 0;
+  const reasons: string[] = [];
+
+  if (entry.inputTokens === null) {
+    reasons.push('input token count unknown');
+  } else if (typeof price.inputPerMillion === 'number') {
+    cost += (entry.inputTokens / 1_000_000) * price.inputPerMillion;
+    pricedBuckets += 1;
+  } else {
+    reasons.push(`input pricing missing for ${model}`);
+  }
+
+  if (entry.cachedInputTokens !== null) {
+    const cachedRate =
+      typeof price.cachedInputPerMillion === 'number'
+        ? price.cachedInputPerMillion
+        : typeof price.inputPerMillion === 'number'
+          ? price.inputPerMillion
+          : null;
+    if (cachedRate === null) {
+      reasons.push(`cached input pricing missing for ${model}`);
+    } else {
+      cost += (entry.cachedInputTokens / 1_000_000) * cachedRate;
+      pricedBuckets += 1;
+    }
+  }
+
+  if (entry.outputTokens === null) {
+    reasons.push('output token count unknown');
+  } else if (typeof price.outputPerMillion === 'number') {
+    cost += (entry.outputTokens / 1_000_000) * price.outputPerMillion;
+    pricedBuckets += 1;
+  } else {
+    reasons.push(`output pricing missing for ${model}`);
+  }
+
+  if (pricedBuckets === 0) {
+    return { costUsd: null, costUnavailableReason: reasons.join('; ') || 'no priced token counts' };
+  }
+
+  return {
+    costUsd: Number(cost.toFixed(6)),
+    costUnavailableReason: reasons.length > 0 ? `partial cost; ${reasons.join('; ')}` : null,
+  };
+}
+
+function entryWithCurrentCost(workspaceRoot: string, entry: LlmUsageEntry): LlmUsageEntry {
+  return {
+    ...entry,
+    ...entryCost(workspaceRoot, entry),
+  };
+}
+
+function entriesWithCurrentCosts(workspaceRoot: string, entries: LlmUsageEntry[]) {
+  return entries.map((entry) => entryWithCurrentCost(workspaceRoot, entry));
 }
 
 function buildEntry(
@@ -249,7 +305,7 @@ function buildEntry(
   const outputTokens = parsed.outputTokens ?? estimatedOutputTokens;
   const totalTokens =
     parsed.totalTokens ??
-    (inputTokens !== null && outputTokens !== null ? inputTokens + (cachedInputTokens ?? 0) + outputTokens : null);
+    (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
   const estimated =
     !parsed.found ||
     parsed.inputTokens === null ||
@@ -302,7 +358,12 @@ function readIssueLedger(workspaceRoot: string, issue: string): LlmUsageLedger {
 
 function writeIssueLedger(workspaceRoot: string, ledger: LlmUsageLedger) {
   const paths = issueUsagePaths(workspaceRoot, ledger.issue);
-  const updated = { ...ledger, schemaVersion: SCHEMA_VERSION, updatedAt: new Date().toISOString() };
+  const updated = {
+    ...ledger,
+    schemaVersion: SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    entries: entriesWithCurrentCosts(workspaceRoot, ledger.entries),
+  };
   writeJson(paths.ledgerPath, updated);
   writeFileSync(paths.summaryPath, `${formatLlmUsageSummary(summarizeIssueUsage(workspaceRoot, ledger.issue)).join('\n')}\n`);
 }
@@ -393,40 +454,58 @@ export function usageEntriesForCommandRun(workspaceRoot: string, issue: string |
   return readIssueLedger(workspaceRoot, issue).entries.filter((entry) => entry.commandRunId === commandRunId);
 }
 
+export function refreshIssueUsageLedgerCosts(workspaceRoot: string, issue: string) {
+  const paths = issueUsagePaths(workspaceRoot, issue);
+  const ledger = readIssueLedger(workspaceRoot, issue);
+  const entries = entriesWithCurrentCosts(workspaceRoot, ledger.entries);
+  const changed = entries.some((entry, index) => {
+    const previous = ledger.entries[index];
+    return previous?.costUsd !== entry.costUsd || previous?.costUnavailableReason !== entry.costUnavailableReason;
+  });
+  if (!changed) return false;
+
+  const updated = { ...ledger, schemaVersion: SCHEMA_VERSION, updatedAt: new Date().toISOString(), entries };
+  writeJson(paths.ledgerPath, updated);
+  writeFileSync(paths.summaryPath, `${formatLlmUsageSummary(summarizeIssueUsage(workspaceRoot, issue)).join('\n')}\n`);
+  return true;
+}
+
 export function summarizeIssueUsage(workspaceRoot: string, issue: string): LlmUsageSummary {
   const paths = issueUsagePaths(workspaceRoot, issue);
   const ledger = readIssueLedger(workspaceRoot, issue);
-  const inputTokens = ledger.entries.reduce((sum, entry) => sum + (entry.inputTokens ?? 0), 0);
-  const cachedInputTokens = ledger.entries.reduce((sum, entry) => sum + (entry.cachedInputTokens ?? 0), 0);
-  const outputTokens = ledger.entries.reduce((sum, entry) => sum + (entry.outputTokens ?? 0), 0);
-  const unknownOutputEntries = ledger.entries.filter((entry) => entry.outputTokens === null).length;
-  const knownTotalTokens = ledger.entries.reduce((sum, entry) => {
+  const entries = entriesWithCurrentCosts(workspaceRoot, ledger.entries);
+  const inputTokens = entries.reduce((sum, entry) => sum + (entry.inputTokens ?? 0), 0);
+  const cachedInputTokens = entries.reduce((sum, entry) => sum + (entry.cachedInputTokens ?? 0), 0);
+  const outputTokens = entries.reduce((sum, entry) => sum + (entry.outputTokens ?? 0), 0);
+  const unknownOutputEntries = entries.filter((entry) => entry.outputTokens === null).length;
+  const knownTotalTokens = entries.reduce((sum, entry) => {
     if (entry.totalTokens !== null) return sum + entry.totalTokens;
-    return sum + (entry.inputTokens ?? 0) + (entry.cachedInputTokens ?? 0) + (entry.outputTokens ?? 0);
+    return sum + (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0);
   }, 0);
   const costUnavailableReasons = Array.from(
-    new Set(ledger.entries.map((entry) => entry.costUnavailableReason).filter((reason): reason is string => Boolean(reason)))
+    new Set(entries.map((entry) => entry.costUnavailableReason).filter((reason): reason is string => Boolean(reason)))
   );
+  const knownCostEntries = entries.filter((entry) => entry.costUsd !== null);
   const costUsd =
-    ledger.entries.length > 0 && costUnavailableReasons.length === 0
-      ? Number(ledger.entries.reduce((sum, entry) => sum + (entry.costUsd ?? 0), 0).toFixed(6))
+    knownCostEntries.length > 0
+      ? Number(knownCostEntries.reduce((sum, entry) => sum + (entry.costUsd ?? 0), 0).toFixed(6))
       : null;
   return {
     issue,
     ledgerPath: paths.ledgerPath,
     summaryPath: paths.summaryPath,
-    entries: ledger.entries.length,
-    failedEntries: ledger.entries.filter((entry) => entry.status === 'failed').length,
-    estimatedEntries: ledger.entries.filter((entry) => entry.estimated).length,
+    entries: entries.length,
+    failedEntries: entries.filter((entry) => entry.status === 'failed').length,
+    estimatedEntries: entries.filter((entry) => entry.estimated).length,
     unknownOutputEntries,
     inputTokens,
     cachedInputTokens,
     outputTokens,
     knownTotalTokens,
-    totalTokensExact: unknownOutputEntries === 0 && ledger.entries.every((entry) => entry.totalTokens !== null),
+    totalTokensExact: unknownOutputEntries === 0 && entries.every((entry) => entry.totalTokens !== null),
     costUsd,
     costUnavailableReasons,
-    models: Array.from(new Set(ledger.entries.map((entry) => entry.model).filter((model): model is string => Boolean(model)))).sort(),
+    models: Array.from(new Set(entries.map((entry) => entry.model).filter((model): model is string => Boolean(model)))).sort(),
   };
 }
 
@@ -443,12 +522,16 @@ export function formatLlmUsageSummary(summary: LlmUsageSummary) {
     ? ` (${summary.unknownOutputEntries} entr${summary.unknownOutputEntries === 1 ? 'y has' : 'ies have'} unknown output)`
     : '';
   const totalPrefix = summary.totalTokensExact ? '' : 'at least ';
-  const cost =
-    summary.costUsd !== null
-      ? `Cost: $${summary.costUsd.toFixed(6)}`
-      : `Cost: unavailable${
-          summary.costUnavailableReasons.length ? `; ${summary.costUnavailableReasons.join('; ')}` : '; no usage recorded'
-        }`;
+  let cost: string;
+  if (summary.costUsd !== null && summary.costUnavailableReasons.length > 0) {
+    cost = `Cost: at least $${summary.costUsd.toFixed(6)}; ${summary.costUnavailableReasons.join('; ')}`;
+  } else if (summary.costUsd !== null) {
+    cost = `Cost: $${summary.costUsd.toFixed(6)}`;
+  } else {
+    cost = `Cost: unavailable${
+      summary.costUnavailableReasons.length ? `; ${summary.costUnavailableReasons.join('; ')}` : '; no usage recorded'
+    }`;
+  }
   return [
     `War Room LLM usage for ${summary.issue}:`,
     `- Entries: ${formatNumber(summary.entries)}${summary.failedEntries ? ` (${summary.failedEntries} failed)` : ''}`,

@@ -45,7 +45,7 @@ import {
 } from './commands/pr.js';
 import { runSync, type SyncResult } from './commands/sync.js';
 import { CAMPAIGN_STATUSES, type CampaignStatusName } from './lib/campaign.js';
-import { formatLlmUsageSummary, summarizeIssueUsage, type LlmUsageSummary } from './lib/llm-usage.js';
+import { formatLlmUsageSummary, refreshIssueUsageLedgerCosts, summarizeIssueUsage, type LlmUsageSummary } from './lib/llm-usage.js';
 import { runGit } from './lib/repos.js';
 import { findWarRoomWorkspace } from './lib/workspace.js';
 
@@ -1397,6 +1397,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .requiredOption('--issue <owner/repo#number>', 'Issue to summarize.')
     .option('--json', 'Print machine-readable output.')
     .action((opts: { issue: string; json?: boolean }) => {
+      refreshIssueUsageLedgerCosts(workspaceRoot, opts.issue);
       const summary = summarizeIssueUsage(workspaceRoot, opts.issue);
       if (opts.json) {
         printJson(output, summary);

@@ -14,6 +14,7 @@ import { runCommitCreate } from '../src/commands/commit-create.js';
 import { runDoctor } from '../src/commands/doctor.js';
 import { runDevStatus } from '../src/commands/dev-link.js';
 import { getAdapterInvocation, getEnvStatus, getInteractiveAdapterInvocation, runAdapter } from '../src/lib/env.js';
+import { formatLlmUsageSummary, recordLlmAdapterUsage, refreshIssueUsageLedgerCosts, summarizeIssueUsage } from '../src/lib/llm-usage.js';
 import { runMapsAssign } from '../src/commands/maps-assign.js';
 import { runMapsStudy } from '../src/commands/maps-study.js';
 import { runSync } from '../src/commands/sync.js';
@@ -88,6 +89,115 @@ describe('phase-1 CLI', () => {
       'victory',
     ]);
   }, 30000);
+
+  it('parses Codex terminal token usage and prices cached tokens', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'warroom-usage-'));
+    mkdirSync(path.join(root, 'config'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'config', 'llm-pricing.json'),
+      JSON.stringify({
+        models: {
+          'gpt-5.5': {
+            inputPerMillion: 1,
+            cachedInputPerMillion: 0.1,
+            outputPerMillion: 2,
+          },
+        },
+      })
+    );
+
+    const invocation = {
+      command: 'codex',
+      args: ['exec', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="xhigh"', '--cd', root, '-'],
+      display: 'codex exec --model gpt-5.5 -c model_reasoning_effort="xhigh"',
+      cwd: root,
+      mode: 'foreground' as const,
+    };
+
+    const usage = recordLlmAdapterUsage(
+      root,
+      { issue: 'TeamFloPay/backend#666', command: 'issue-create', stage: 'pm-session', repo: 'TeamFloPay/backend' },
+      invocation,
+      'War Room issue creation PM session',
+      {
+        status: 0,
+        signal: null,
+        error: null,
+        stdout: null,
+        stderr: null,
+        outputText: 'Token usage: total=41.022 input=36.941 (+ 161.024 cached) output=4.081 (reasoning 2.428)',
+      }
+    );
+
+    expect(usage.entry?.inputTokens).toBe(36941);
+    expect(usage.entry?.cachedInputTokens).toBe(161024);
+    expect(usage.entry?.outputTokens).toBe(4081);
+    expect(usage.entry?.totalTokens).toBe(41022);
+    expect(usage.entry?.usageSource).toBe('adapter');
+    expect(usage.entry?.costUsd).toBe(0.061205);
+
+    const summary = summarizeIssueUsage(root, 'TeamFloPay/backend#666');
+    expect(formatLlmUsageSummary(summary)).toContain('- Cost: $0.061205');
+  });
+
+  it('keeps a partial token cost when output tokens are unknown', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'warroom-usage-'));
+    mkdirSync(path.join(root, 'config'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'config', 'llm-pricing.json'),
+      JSON.stringify({
+        models: {
+          'gpt-5.5': {
+            inputPerMillion: 1,
+            cachedInputPerMillion: 0.1,
+            outputPerMillion: 2,
+          },
+        },
+      })
+    );
+
+    const invocation = {
+      command: 'codex',
+      args: ['exec', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="xhigh"', '--cd', root, '-'],
+      display: 'codex exec --model gpt-5.5 -c model_reasoning_effort="xhigh"',
+      cwd: root,
+      mode: 'foreground' as const,
+    };
+
+    const usage = recordLlmAdapterUsage(
+      root,
+      { issue: 'TeamFloPay/backend#667', command: 'issue-create', stage: 'pm-session', repo: 'TeamFloPay/backend' },
+      invocation,
+      'x'.repeat(4000),
+      {
+        status: 0,
+        signal: null,
+        error: null,
+        stdout: null,
+        stderr: null,
+        outputText: null,
+      }
+    );
+
+    expect(usage.entry?.inputTokens).toBe(1000);
+    expect(usage.entry?.outputTokens).toBeNull();
+    expect(usage.entry?.costUsd).toBe(0.001);
+    expect(usage.entry?.costUnavailableReason).toBe('partial cost; output token count unknown');
+
+    const ledgerPath = path.join(root, '.warroom', 'runs', 'issues', 'TeamFloPay__backend__667', 'usage-ledger.json');
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')) as { entries: Array<{ costUsd: number | null; costUnavailableReason: string | null }> };
+    ledger.entries[0]!.costUsd = null;
+    ledger.entries[0]!.costUnavailableReason = 'output token count unknown';
+    writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    expect(refreshIssueUsageLedgerCosts(root, 'TeamFloPay/backend#667')).toBe(true);
+    const refreshedLedger = JSON.parse(readFileSync(ledgerPath, 'utf8')) as { entries: Array<{ costUsd: number | null; costUnavailableReason: string | null }> };
+    expect(refreshedLedger.entries[0]?.costUsd).toBe(0.001);
+    expect(refreshedLedger.entries[0]?.costUnavailableReason).toBe('partial cost; output token count unknown');
+
+    const summary = summarizeIssueUsage(root, 'TeamFloPay/backend#667');
+    expect(formatLlmUsageSummary(summary)).toContain('- Cost: at least $0.001000; partial cost; output token count unknown');
+  });
 
   it('validates campaign atlas generation state', () => {
     const result = runMapsAssign(workspaceRoot, { check: true });

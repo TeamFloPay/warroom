@@ -268,17 +268,55 @@ function withLastMessageOutput(invocation: AdapterInvocation, outputPath: string
   };
 }
 
+function interactiveCaptureScriptCommand() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return null;
+  if (process.platform !== 'darwin') return null;
+  return existsSync('/usr/bin/script') ? '/usr/bin/script' : null;
+}
+
+function runInteractiveAdapterProcess(invocation: AdapterInvocation, env: NodeJS.ProcessEnv) {
+  const scriptCommand = interactiveCaptureScriptCommand();
+  if (!scriptCommand) {
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      stdio: 'inherit',
+      encoding: 'utf8',
+      env,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      error: result.error,
+      outputText: null as string | null,
+    };
+  }
+
+  const outputDir = mkdtempSync(path.join(tmpdir(), 'warroom-interactive-adapter-output-'));
+  const outputPath = path.join(outputDir, 'terminal.log');
+  try {
+    const result = spawnSync(scriptCommand, ['-q', outputPath, invocation.command, ...invocation.args], {
+      cwd: invocation.cwd,
+      stdio: 'inherit',
+      encoding: 'utf8',
+      env,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      error: result.error,
+      outputText: existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : null,
+    };
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+}
+
 export function runInteractiveAdapter(workspaceRoot: string, prompt: string, options: AdapterRunOptions = {}): AdapterRunResult {
   const invocation = getInteractiveAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot, prompt);
   process.stderr.write(`Launching interactive adapter: ${invocation.display}\n`);
-  const result = spawnSync(invocation.command, invocation.args, {
-    cwd: invocation.cwd,
-    stdio: 'inherit',
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      ...localProcessEnv(workspaceRoot),
-    },
+  const result = runInteractiveAdapterProcess(invocation, {
+    ...process.env,
+    ...localProcessEnv(workspaceRoot),
   });
   const error =
     result.error?.message ??
@@ -289,7 +327,7 @@ export function runInteractiveAdapter(workspaceRoot: string, prompt: string, opt
     error,
     stdout: null,
     stderr: null,
-    outputText: null,
+    outputText: result.outputText,
   });
   if (usage.warning) process.stderr.write(`${usage.warning}\n`);
 

@@ -1392,6 +1392,53 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('posts fallback CodeRabbit replies when War Room auto-commits adapter edits', async () => {
+    const { root, sdk } = makeCommitFixture();
+    const bin = path.join(root, 'bin');
+    const stateFile = path.join(root, 'review-state.txt');
+    const replyLog = path.join(root, 'review-thread-replies.jsonl');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(stateFile, '1');
+    writePrReviewLoopGhFixture(bin, stateFile, {
+      queue: 'multi',
+      outstandingFirst: true,
+      replyAfterFix: false,
+      replyLog,
+    });
+    writePrReviewLoopDirtyCodexFixture(bin, stateFile);
+    writeFileSync(path.join(sdk, 'README.md'), '# SDK\n');
+    commitAll(sdk, 'fixture sdk');
+    const branch = spawnSync('git', ['switch', '-c', 'warroom/8-active-sdk-work'], { cwd: sdk, encoding: 'utf8' });
+    if (branch.status !== 0) throw new Error(branch.stderr);
+    const push = spawnSync('git', ['push', '-u', 'origin', 'warroom/8-active-sdk-work'], { cwd: sdk, encoding: 'utf8' });
+    if (push.status !== 0) throw new Error(push.stderr);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    const restorePrReviewEnv = setFastPrReviewPolling();
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync(['node', 'warroom', 'pr', 'review', '--pr', 'TeamFloPay/sdk#12', '--launch']);
+
+      expect(lines).toContain('PR review loop: adapter left 1 changed file; committing them before waiting for CodeRabbit.');
+      expect(lines).toContain('PR review loop: posted fallback CodeRabbit replies to 1 review thread after publishing the review commit.');
+      expect(lines).toContain('PR review loop 1: no outstanding CodeRabbit feedback remains.');
+      expectFinalOutcome(lines, 'Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
+
+      const replies = readFileSync(replyLog, 'utf8').trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(replies).toHaveLength(1);
+      expect(replies[0].threadId).toBe('PRRT_fixture_1');
+      expect(replies[0].body).toContain('Change made: War Room committed the PR review updates in');
+      expect(replies[0].body).toContain('src/billing.ts:12');
+    } finally {
+      restorePrReviewEnv();
+      process.env.PATH = originalPath;
+    }
+  });
+
   it('includes visible CodeRabbit thread IDs in the PR review handoff', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');
@@ -4010,6 +4057,7 @@ function writePrReviewLoopGhFixture(
     delayedCodeRabbit?: boolean;
     initialCodeRabbitPending?: boolean;
     replyAfterFix?: boolean;
+    replyLog?: string;
   }
 ) {
   const ghPath = path.join(bin, 'gh');
@@ -4017,7 +4065,7 @@ function writePrReviewLoopGhFixture(
     ghPath,
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
-const { readFileSync, writeFileSync } = require('node:fs');
+const { appendFileSync, readFileSync, writeFileSync } = require('node:fs');
 const stateFile = ${JSON.stringify(stateFile)};
 const options = ${JSON.stringify(options)};
 
@@ -4035,6 +4083,18 @@ function valueFor(name) {
     if (args[index] !== '-f' && args[index] !== '-F') continue;
     const [key, value] = args[index + 1].split('=');
     if (key === name) return value;
+  }
+}
+
+function postedReplies() {
+  if (!options.replyLog) return [];
+  try {
+    return readFileSync(options.replyLog, 'utf8')
+      .split(/\\r?\\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    return [];
   }
 }
 
@@ -4193,6 +4253,14 @@ if (args[0] === 'api' && args[1] === 'graphql') {
   const number = Number(valueFor('number'));
   const query = valueFor('query') || '';
 
+  if (query.includes('addPullRequestReviewThreadReply')) {
+    const threadId = valueFor('threadId');
+    const body = valueFor('body');
+    if (options.replyLog) appendFileSync(options.replyLog, JSON.stringify({ threadId, body }) + '\\n');
+    json({ data: { addPullRequestReviewThreadReply: { comment: { url: 'https://github.com/TeamFloPay/sdk/pull/12#discussion_reply_fallback' } } } });
+    process.exit(0);
+  }
+
   if (query.includes('pullRequest')) {
     const initialFeedbackPending = options.initialCodeRabbitPending && loopCount() === 0 && pollCount() < 4;
     const delayedFeedbackPending = options.delayedCodeRabbit && loopCount() === 1 && pollCount() < 4;
@@ -4217,6 +4285,16 @@ if (args[0] === 'api' && args[1] === 'graphql') {
       body: 'Change made: committed the fixture fix.',
       author: { login: 'andrewslack' }
     };
+    const fallbackReplies = postedReplies()
+      .filter((reply) => reply.threadId === 'PRRT_fixture_1')
+      .map((reply, index) => ({
+        id: 'PRRC_fixture_fallback_' + index,
+        path: 'src/billing.ts',
+        line: 12,
+        url: 'https://github.com/TeamFloPay/sdk/pull/12#discussion_reply_fallback_' + index,
+        body: reply.body,
+        author: { login: 'andrewslack' }
+      }));
     json({
       data: {
         repository: {
@@ -4241,8 +4319,8 @@ if (args[0] === 'api' && args[1] === 'graphql') {
                       isOutdated: false,
                       comments: {
                         nodes: options.replyAfterFix === false
-                          ? [originalCodeRabbitComment]
-                          : [originalCodeRabbitComment, completionReply]
+                          ? [originalCodeRabbitComment, ...fallbackReplies]
+                          : [originalCodeRabbitComment, completionReply, ...fallbackReplies]
                       }
                     }
                   ]

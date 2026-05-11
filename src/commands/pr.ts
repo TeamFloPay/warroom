@@ -1193,6 +1193,67 @@ function listCodeRabbitThreadsMissingReplies(
     .map(([, thread]) => thread);
 }
 
+function postPullRequestReviewThreadReply(threadId: string, body: string): { url: string | null; error: string | null } {
+  const query =
+    'mutation($threadId: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) { comment { url } } }';
+  const result = spawnSync(
+    'gh',
+    ['api', 'graphql', '-f', `threadId=${threadId}`, '-f', `body=${body}`, '-f', `query=${query}`],
+    { encoding: 'utf8' }
+  );
+  if (result.status !== 0) {
+    return { url: null, error: result.stderr.trim() || `gh exited ${result.status ?? 'unknown'}` };
+  }
+  try {
+    const parsed = JSON.parse(result.stdout) as {
+      data?: { addPullRequestReviewThreadReply?: { comment?: { url?: string } } };
+    };
+    return { url: parsed.data?.addPullRequestReviewThreadReply?.comment?.url ?? null, error: null };
+  } catch {
+    return { url: result.stdout.trim() || null, error: null };
+  }
+}
+
+function fallbackCodeRabbitReplyBody(thread: MergeReadiness['unresolvedReviewThreads'][number], commitSha: string) {
+  const line = thread.line === null ? '' : `:${thread.line}`;
+  return [
+    `Change made: War Room committed the PR review updates in ${commitSha}.`,
+    `This reply is attached to the CodeRabbit finding for ${thread.path}${line} so the review thread has an explicit audit trail.`,
+  ].join(' ');
+}
+
+function postFallbackCodeRabbitReplies(
+  threads: MergeReadiness['unresolvedReviewThreads'],
+  commitSha: string,
+  reviewStatus: ((message: string) => void) | undefined
+) {
+  const posted: string[] = [];
+  for (const thread of threads) {
+    if (!thread.threadId) {
+      return {
+        posted,
+        error: `Cannot post a fallback CodeRabbit reply for ${thread.url ?? thread.path}; GitHub did not return a review thread ID.`,
+      };
+    }
+    const reply = postPullRequestReviewThreadReply(thread.threadId, fallbackCodeRabbitReplyBody(thread, commitSha));
+    if (reply.error) {
+      return {
+        posted,
+        error: `Could not post fallback CodeRabbit reply for ${thread.url ?? thread.threadId}: ${reply.error}`,
+      };
+    }
+    posted.push(reply.url ?? thread.threadId);
+  }
+  if (posted.length > 0) {
+    reviewStatus?.(
+      `PR review loop: posted fallback CodeRabbit replies to ${posted.length} review thread${
+        posted.length === 1 ? '' : 's'
+      } after publishing the review commit.`
+    );
+  }
+  return { posted, error: null };
+}
+
 function prReviewSnapshot(ref: { repo: string; number: number }): PrReviewSnapshot {
   return ghJson<PrReviewSnapshot>(
     [
@@ -3124,9 +3185,9 @@ function publishAdapterReviewChanges(
   previousLocalHeadSha: string | null,
   reviewStatus: ((message: string) => void) | undefined
 ) {
-  if (!previousLocalHeadSha) return { changed: false, error: null };
+  if (!previousLocalHeadSha) return { changed: false, headSha: null as string | null, error: null };
   const branch = branchName || gitCurrentBranch(repoPath);
-  if (!branch) return { changed: false, error: 'Could not determine PR branch name for review changes.' };
+  if (!branch) return { changed: false, headSha: null as string | null, error: 'Could not determine PR branch name for review changes.' };
 
   const dirtyFiles = gitStatusPaths(repoPath);
   let committedDirtyFiles = false;
@@ -3138,26 +3199,38 @@ function publishAdapterReviewChanges(
     );
     const add = runGit(repoPath, ['add', '-A']);
     if (add.status !== 0) {
-      return { changed: false, error: add.stderr || `git add -A failed with exit ${add.status ?? 'unknown'}.` };
+      return {
+        changed: false,
+        headSha: null as string | null,
+        error: add.stderr || `git add -A failed with exit ${add.status ?? 'unknown'}.`,
+      };
     }
 
     const commit = runGit(repoPath, ['commit', '-m', 'fix: address CodeRabbit review feedback']);
     if (commit.status !== 0) {
-      return { changed: false, error: commit.stderr || `git commit failed with exit ${commit.status ?? 'unknown'}.` };
+      return {
+        changed: false,
+        headSha: null as string | null,
+        error: commit.stderr || `git commit failed with exit ${commit.status ?? 'unknown'}.`,
+      };
     }
     committedDirtyFiles = true;
   }
 
   const headSha = gitHeadSha(repoPath);
-  if (!committedDirtyFiles && headSha === previousLocalHeadSha) return { changed: false, error: null };
-  if (headSha === previousHeadSha) return { changed: false, error: null };
+  if (!committedDirtyFiles && headSha === previousLocalHeadSha) return { changed: false, headSha, error: null };
+  if (headSha === previousHeadSha) return { changed: false, headSha, error: null };
 
   reviewStatus?.(`PR review loop: pushing review commit ${shortSha(headSha)} to ${branch}.`);
   const push = runGit(repoPath, ['push', 'origin', `HEAD:${branch}`]);
   if (push.status !== 0) {
-    return { changed: false, error: push.stderr || `git push origin HEAD:${branch} failed with exit ${push.status ?? 'unknown'}.` };
+    return {
+      changed: false,
+      headSha,
+      error: push.stderr || `git push origin HEAD:${branch} failed with exit ${push.status ?? 'unknown'}.`,
+    };
   }
-  return { changed: true, error: null };
+  return { changed: true, headSha, error: null };
 }
 
 async function runMergeChangelog(
@@ -3730,7 +3803,9 @@ If adding the reaction is blocked, cancelled, unsupported, or unauthenticated, s
 
 Next, review the feedback and grill-me for additional context to complete the work. If a code change is required, implement the update in the checked-out PR branch.
 
-Finally, you must post one final reply on every listed thread. Do not only commit code and do not rely on CodeRabbit auto-resolving the thread.
+For code changes, commit the changes before posting final thread replies so the reply can name the commit SHA. If no code change is required, do not create an empty commit; use a Skipped reply.
+
+Finally, you must post one final reply on every listed thread. Do not only commit code and do not rely on CodeRabbit auto-resolving the thread. Every listed Thread ID needs an explicit final reply even if CodeRabbit later resolves or outdates the thread.
 
 Use this thread-reply mutation with each listed Thread ID:
 
@@ -3742,7 +3817,7 @@ Reply format:
 
 Before finishing, verify every listed Thread ID has a non-CodeRabbit reply starting with either "Change made:" or "Skipped:". If GitHub will not let you reply, stop and report the blocker instead of claiming the review loop is complete.
 
-Once all comments are complete and you've looped through all outstanding feedback, commit the code into the PR branch.`;
+Once all listed threads have explicit replies and any needed commit exists locally, finish and let War Room publish the branch if needed.`;
 }
 
 async function runCodeRabbitPrReviewLoop(
@@ -3868,6 +3943,57 @@ async function runCodeRabbitPrReviewLoop(
         adapterCommand,
         launchError: published.error,
       };
+    }
+
+    let missingReplies = listCodeRabbitThreadsMissingReplies(ref, threadsForPrompt);
+    if (missingReplies.length > 0 && published.changed && published.headSha) {
+      const fallbackReplies = postFallbackCodeRabbitReplies(missingReplies, published.headSha, options.reviewStatus);
+      if (fallbackReplies.error) {
+        iteration.endHeadSha = published.headSha;
+        iterations.push(iteration);
+        return {
+          loop: {
+            status: 'failed',
+            completed: false,
+            iterations,
+            blocked: [fallbackReplies.error],
+            error: fallbackReplies.error,
+          },
+          launched: true,
+          adapterCommand,
+          launchError: fallbackReplies.error,
+        };
+      }
+      missingReplies = listCodeRabbitThreadsMissingReplies(ref, threadsForPrompt);
+      if (missingReplies.length > 0) {
+        const error = `War Room fallback replies were not visible on ${missingReplies.length} CodeRabbit review thread${
+          missingReplies.length === 1 ? '' : 's'
+        }: ${missingReplies.map((thread) => thread.url ?? thread.threadId ?? thread.path).join(', ')}`;
+        iteration.endHeadSha = published.headSha;
+        iterations.push(iteration);
+        return {
+          loop: { status: 'failed', completed: false, iterations, blocked: [error], error },
+          launched: true,
+          adapterCommand,
+          launchError: error,
+        };
+      }
+    }
+
+    if (!published.changed && threadsForPrompt.length > 0) {
+      if (missingReplies.length > 0) {
+        const error = `LLM adapter did not post final replies to ${missingReplies.length} CodeRabbit review thread${
+          missingReplies.length === 1 ? '' : 's'
+        }: ${missingReplies.map((thread) => thread.url ?? thread.threadId ?? thread.path).join(', ')}`;
+        iteration.endHeadSha = currentHeadSha;
+        iterations.push(iteration);
+        return {
+          loop: { status: 'failed', completed: false, iterations, blocked: [error], error },
+          launched: true,
+          adapterCommand,
+          launchError: error,
+        };
+      }
     }
 
     options.reviewStatus?.(

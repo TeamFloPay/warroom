@@ -50,6 +50,7 @@ export type PrOptions = {
   confirmSummary?: boolean;
   cleanupLocal?: boolean;
   confirmCleanup?: boolean;
+  confirmChangelog?: boolean;
   issueComment?: boolean;
   checkInMinutes?: number;
   allowUnresolvedReviewThreads?: boolean;
@@ -61,6 +62,7 @@ export type PrOptions = {
   e2eStatus?: (message: string) => void;
   e2eOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
   mergeStatus?: (message: string) => void;
+  changelogConfirmation?: (plan: MergeChangelogResult) => Promise<boolean>;
   reviewStatus?: (message: string) => void;
 };
 
@@ -359,6 +361,26 @@ function mergePlaywrightSkipRequirement() {
     required: false,
     skipReason: 'Skipped by user during interactive merge confirmation.',
   };
+}
+
+function mergeChangelogSkipResult(plan: MergeChangelogResult, skipReason: string): MergeChangelogResult {
+  return {
+    ...plan,
+    status: 'skipped',
+    skipReason,
+    durationMs: null,
+    committed: false,
+    pushed: false,
+    commitSha: null,
+    error: null,
+  };
+}
+
+async function shouldRunMergeChangelog(options: PrOptions, plan: MergeChangelogResult) {
+  if (!plan.required) return false;
+  if (options.confirmChangelog) return true;
+  if (options.changelogConfirmation) return options.changelogConfirmation(plan);
+  return false;
 }
 
 type ChangelogRequirement = {
@@ -4427,8 +4449,8 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
       : '- Merge may proceed without the demo Playwright e2e gate for this repo.',
     mergeChangelog.required
       ? mergeChangelog.changelogFormat === 'openchangelog'
-        ? `- After merge, wait for GitHub Actions on ${targetBase}, pull the latest ${targetBase}, create one public OpenChangelog release-note file under ${mergeChangelog.changelogPath ?? 'the configured release-notes folder'} with the LLM, and push a [skip-ci] changelog commit.`
-        : `- After merge, wait for GitHub Actions on ${targetBase}, pull the latest ${targetBase}, update ${mergeChangelog.changelogPath ?? 'CHANGELOG.md'} with the LLM, and push a [skip-ci] changelog commit.`
+        ? `- After merge, ask for changelog confirmation, then wait for GitHub Actions on ${targetBase}, pull the latest ${targetBase}, create one public OpenChangelog release-note file under ${mergeChangelog.changelogPath ?? 'the configured release-notes folder'} with the LLM, and push a [skip-ci] changelog commit.`
+        : `- After merge, ask for changelog confirmation, then wait for GitHub Actions on ${targetBase}, pull the latest ${targetBase}, update ${mergeChangelog.changelogPath ?? 'CHANGELOG.md'} with the LLM, and push a [skip-ci] changelog commit.`
       : `- Changelog update skipped: ${mergeChangelog.skipReason ?? 'merge.changelog is not enabled for this repo.'}`,
     '- Merge only after explicit confirmation.',
     '- Post issue/PR summary and return local checkout to the default branch safely.',
@@ -4484,7 +4506,17 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     );
     if (result.status !== 0) throw new Error(`gh pr merge failed with exit ${result.status ?? 'unknown'}.`);
     merged = true;
-    mergeChangelog = await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId });
+    if (mergeChangelog.required) {
+      const confirmedChangelog = await shouldRunMergeChangelog(resolvedOptions, mergeChangelog);
+      mergeChangelog = confirmedChangelog
+        ? await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId })
+        : mergeChangelogSkipResult(
+            mergeChangelog,
+            resolvedOptions.changelogConfirmation
+              ? 'Skipped by user during interactive changelog confirmation.'
+              : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
+          );
+    }
   }
 
   const completionReadiness =

@@ -2423,7 +2423,16 @@ describe('phase-1 CLI', () => {
       const lines: string[] = [];
       const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
 
-      await program.parseAsync(['node', 'warroom', 'pr', 'merge', '--pr', 'TeamFloPay/sdk#655', '--confirm']);
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
 
       const output = lines.join('\n');
       expect(output).toContain('Merge e2e: skipped (repos.yaml has merge.playwright: false for TeamFloPay/sdk.)');
@@ -2457,6 +2466,106 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('skips the changelog update unless the guarded merge changelog step is confirmed', async () => {
+    const { root, sdk, sdkRemote } = makeChangelogMergeFixture();
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeChangelogMergeGhFixture(bin, sdkRemote);
+
+    const originalPath = process.env.PATH;
+    const envKeys = [
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS',
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS',
+    ] as const;
+    const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS = '0';
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS = '0';
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync(['node', 'warroom', 'pr', 'merge', '--pr', 'TeamFloPay/sdk#655', '--confirm']);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Merge changelog: skipped');
+      expect(output).toContain('Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.');
+      expect(lines).toContain('Merged: yes');
+
+      const remoteChangelog = spawnSync('git', ['--git-dir', sdkRemote, 'show', 'refs/heads/main:CHANGELOG.md'], {
+        encoding: 'utf8',
+      });
+      expect(remoteChangelog.stdout).toContain('## 1.0.0');
+      expect(remoteChangelog.stdout).not.toContain('## 1.0.1');
+
+      const remoteSubject = spawnSync('git', ['--git-dir', sdkRemote, 'log', '-1', '--pretty=%s', 'refs/heads/main'], {
+        encoding: 'utf8',
+      });
+      expect(remoteSubject.stdout.trim()).toBe('chore(release): 1.0.1');
+    } finally {
+      process.env.PATH = originalPath;
+      for (const key of envKeys) {
+        const value = originalEnv[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it('prompts before running the guarded changelog update in an interactive confirmed merge', async () => {
+    const { root, sdk, sdkRemote } = makeChangelogMergeFixture();
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeChangelogMergeGhFixture(bin, sdkRemote);
+
+    const originalPath = process.env.PATH;
+    const envKeys = [
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS',
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS',
+    ] as const;
+    const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS = '0';
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS = '0';
+
+    try {
+      const lines: string[] = [];
+      const input = new PassThrough();
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line), input, interactive: true });
+
+      const answers = ['no\n', 'no\n', 'no\n'];
+      const promptAnswers = setInterval(() => {
+        const answer = answers.shift();
+        if (answer) input.write(answer);
+        else clearInterval(promptAnswers);
+      }, 100);
+      try {
+        await program.parseAsync(['node', 'warroom', 'pr', 'merge', '--pr', 'TeamFloPay/sdk#655', '--confirm']);
+      } finally {
+        clearInterval(promptAnswers);
+        input.end();
+      }
+
+      expect(lines.some((line) => line.startsWith('Run the public changelog update now (update '))).toBe(true);
+      expect(lines).toContain('Merge changelog: skipped (Skipped by user during interactive changelog confirmation.)');
+      expect(lines).toContain('Post victory summary comments now? [y/N]');
+      expect(lines).toContain('Return the local checkout to the PR base branch now? [y/N]');
+
+      const remoteChangelog = spawnSync('git', ['--git-dir', sdkRemote, 'show', 'refs/heads/main:CHANGELOG.md'], {
+        encoding: 'utf8',
+      });
+      expect(remoteChangelog.stdout).not.toContain('## 1.0.1');
+    } finally {
+      process.env.PATH = originalPath;
+      for (const key of envKeys) {
+        const value = originalEnv[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it('creates an OpenChangelog release note after SDK merge actions pass', async () => {
     const { root, sdk, sdkRemote } = makeChangelogMergeFixture({ openchangelog: true });
     const bin = path.join(root, 'bin');
@@ -2478,7 +2587,16 @@ describe('phase-1 CLI', () => {
       const lines: string[] = [];
       const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
 
-      await program.parseAsync(['node', 'warroom', 'pr', 'merge', '--pr', 'TeamFloPay/sdk#655', '--confirm']);
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
 
       const output = lines.join('\n');
       expect(output).toContain('Merge changelog: passed');
@@ -2536,7 +2654,16 @@ describe('phase-1 CLI', () => {
       const lines: string[] = [];
       const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
 
-      await program.parseAsync(['node', 'warroom', 'pr', 'merge', '--pr', 'TeamFloPay/sdk#655', '--confirm']);
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
 
       const output = lines.join('\n');
       expect(output).toContain('Merge changelog: failed');

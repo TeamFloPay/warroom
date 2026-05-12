@@ -38,6 +38,7 @@ import {
   runPrReview,
   runPrReviewQueue,
   type LocalCleanupResult,
+  type MergeChangelogResult,
   type PrCreateResult,
   type PrPlanResult,
   type PrReviewQueueResult,
@@ -266,6 +267,14 @@ async function promptBlockedMergeConfirmation(output: Output, input: Input, ques
   }
 
   return 'cancel';
+}
+
+async function promptMergeChangelogConfirmation(output: Output, input: Input, plan: MergeChangelogResult) {
+  const target =
+    plan.changelogFormat === 'openchangelog'
+      ? `create one public OpenChangelog release note under ${plan.changelogPath ?? 'the configured release-notes folder'}`
+      : `update ${plan.changelogPath ?? 'the configured changelog file'}`;
+  return promptConfirmation(output, input, `Run the public changelog update now (${target})? [y/N]`);
 }
 
 function createE2EOutput(output: Output, customOutput: boolean): E2EOutput {
@@ -729,6 +738,7 @@ async function runInteractivePrMergeFlow(
     summary?: string;
     postSummary?: boolean;
     confirmSummary?: boolean;
+    confirmChangelog?: boolean;
     issueComment?: boolean;
     cleanupLocal?: boolean;
     confirmCleanup?: boolean;
@@ -742,6 +752,10 @@ async function runInteractivePrMergeFlow(
     summary: options.summary,
     postSummary: options.postSummary || options.confirmSummary,
     confirmSummary: options.confirmSummary,
+    confirmChangelog: options.confirmChangelog,
+    changelogConfirmation: options.confirmChangelog
+      ? undefined
+      : (plan: MergeChangelogResult) => promptMergeChangelogConfirmation(output, input, plan),
     issueComment: options.issueComment,
     cleanupLocal: options.cleanupLocal || options.confirmCleanup,
     confirmCleanup: options.confirmCleanup,
@@ -1934,6 +1948,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--issue <owner/repo#number>', 'Linked issue to move to victory.')
     .option('--confirm', 'Run the demo e2e gate, then gh pr merge --squash --delete-branch.')
     .option('--confirm-status', 'Move the linked issue to victory on the Campaign Map.')
+    .option('--confirm-changelog', 'Run the guarded post-merge changelog update without asking.')
     .option('--summary <text>', 'Victory summary to include in local artifacts and optional comments.')
     .option('--post-summary', 'Plan or post victory summary comments to the PR and linked issue.')
     .option('--confirm-summary', 'Actually post victory summary comments. Implies --post-summary.')
@@ -1947,6 +1962,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
       issue?: string;
       confirm?: boolean;
       confirmStatus?: boolean;
+      confirmChangelog?: boolean;
       summary?: string;
       postSummary?: boolean;
       confirmSummary?: boolean;
@@ -1972,6 +1988,11 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         issue: resolvedIssue,
         confirm: opts.confirm,
         confirmStatus: opts.confirmStatus,
+        confirmChangelog: opts.confirmChangelog,
+        changelogConfirmation:
+          interactive && !opts.confirmChangelog
+            ? (plan: MergeChangelogResult) => promptMergeChangelogConfirmation(output, input, plan)
+            : undefined,
         summary: opts.summary,
         postSummary: opts.postSummary || opts.confirmSummary,
         confirmSummary: opts.confirmSummary,
@@ -2024,6 +2045,10 @@ export function buildProgram(options: BuildProgramOptions = {}) {
             skipMergeE2E,
             allowUnresolvedReviewThreads,
             confirmStatus: opts.confirmStatus,
+            confirmChangelog: opts.confirmChangelog,
+            changelogConfirmation: opts.confirmChangelog
+              ? undefined
+              : (plan: MergeChangelogResult) => promptMergeChangelogConfirmation(output, input, plan),
             summary: opts.summary,
             postSummary: opts.postSummary || opts.confirmSummary,
             confirmSummary: opts.confirmSummary,

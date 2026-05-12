@@ -14,6 +14,8 @@ merge:
 
 Legacy `merge.changelog: true` still means "update `CHANGELOG.md`". New client-facing repos should prefer `format: openchangelog`.
 
+Because these notes are public, `warroom pr merge` asks for explicit changelog approval before launching the adapter in interactive terminals. Non-interactive merges must pass `--confirm-changelog`; otherwise War Room skips the changelog closeout after the PR merge.
+
 ## File Format
 
 Create one Markdown file per release under the configured folder, usually `release-notes/`.

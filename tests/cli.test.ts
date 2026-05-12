@@ -24,6 +24,7 @@ import {
 import { runMapsAssign } from '../src/commands/maps-assign.js';
 import { runMapsStudy } from '../src/commands/maps-study.js';
 import { runSync } from '../src/commands/sync.js';
+import { formatFinalChangelogCheck } from '../src/commands/pr.js';
 
 const workspaceRoot = new URL('..', import.meta.url).pathname;
 const FAST_PR_REVIEW_ENV = ['WARROOM_PR_REVIEW_POLL_MS', 'WARROOM_PR_REVIEW_CODERABBIT_SETTLE_MS'] as const;
@@ -55,6 +56,33 @@ function expectFinalOutcome(lines: string[], outcome: string) {
 }
 
 describe('phase-1 CLI', () => {
+  it('formats final changelog checks with the public changelog site link', () => {
+    expect(
+      formatFinalChangelogCheck({
+        status: 'passed',
+        required: true,
+        skipReason: null,
+        repo: 'TeamFloPay/sdk',
+        path: '/tmp/sdk',
+        base: 'main',
+        currentBranch: 'main',
+        changelogPath: '/tmp/sdk/release-notes',
+        changelogFormat: 'openchangelog',
+        changelogUrl: 'https://changelog.sdk.flopay.com',
+        changelogFile: 'release-notes/v1.0.1.ready-sdk-pr.md',
+        version: '1.0.1',
+        actionsHeadSha: 'abc123',
+        actionsRuns: [],
+        durationMs: 10,
+        committed: true,
+        pushed: true,
+        commitSha: 'abc123',
+        blocked: [],
+        error: null,
+      })
+    ).toBe('passed ([public changelog](https://changelog.sdk.flopay.com))');
+  });
+
   it('loads the repo map', () => {
     const repos = runMapsStudy(workspaceRoot);
     expect(repos.map((repo) => repo.id)).toEqual([
@@ -2668,6 +2696,7 @@ describe('phase-1 CLI', () => {
       expect(output).toContain('Changelog: ');
       expect(output).toContain('(openchangelog, base main)');
       expect(output).toContain('Changelog file: release-notes/v1.0.1.ready-sdk-pr.md');
+      expect(output).toContain('Changelog URL: https://changelog.sdk.flopay.com');
       expect(output).toContain('Changelog version: 1.0.1');
 
       const remoteNote = spawnSync('git', ['--git-dir', sdkRemote, 'show', 'refs/heads/main:release-notes/v1.0.1.ready-sdk-pr.md'], {
@@ -3395,7 +3424,8 @@ function makeChangelogMergeFixture(options: { openchangelog?: boolean; bump?: bo
     ? `changelog:
         enabled: true
         format: openchangelog
-        path: release-notes`
+        path: release-notes
+        url: https://changelog.sdk.flopay.com`
     : 'changelog: true';
   const bumpConfig = options.bump
     ? `bump:

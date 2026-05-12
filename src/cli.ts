@@ -607,6 +607,7 @@ function printPrPlan(output: Output, result: PrPlanResult) {
         `Changelog: ${result.mergeChangelog.changelogPath ?? 'missing'} (${result.mergeChangelog.changelogFormat}, base ${result.mergeChangelog.base})`
       );
       if (result.mergeChangelog.changelogFile) output(`Changelog file: ${result.mergeChangelog.changelogFile}`);
+      if (result.mergeChangelog.changelogUrl) output(`Changelog URL: ${result.mergeChangelog.changelogUrl}`);
       output(`Changelog actions: ${result.mergeChangelog.actionsHeadSha ?? 'planned'} (${result.mergeChangelog.actionsRuns.length} runs)`);
       if (result.mergeChangelog.version) output(`Changelog version: ${result.mergeChangelog.version}`);
       output(

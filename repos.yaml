@@ -20,6 +20,7 @@ repos:
         enabled: true
         format: openchangelog
         path: release-notes
+        url: https://changelog.sdk.flopay.com
     owner: sdk
     description: SDK packages published as @flopay/*.
     specialist:
@@ -53,6 +54,7 @@ repos:
         enabled: true
         format: openchangelog
         path: release-notes
+        url: https://changelog.backend.flopay.com
     owner: backend
     description: Central API and server-side application.
     specialist:

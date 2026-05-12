@@ -102,6 +102,7 @@ export type MergeChangelogResult = {
   currentBranch: string | null;
   changelogPath: string | null;
   changelogFormat: 'keep-a-changelog' | 'openchangelog';
+  changelogUrl: string | null;
   changelogFile: string | null;
   version: string | null;
   actionsHeadSha: string | null;
@@ -460,6 +461,7 @@ type ChangelogRequirement = {
   config: {
     format: 'keep-a-changelog' | 'openchangelog';
     path: string;
+    url: string | null;
   } | null;
 };
 
@@ -3076,7 +3078,7 @@ function createMergeChangelogPlan(
 ): MergeChangelogResult {
   const repoEntry = repoEntryForGitHub(workspaceRoot, githubRepo);
   const repo = repoEntry ? getRepoHealth(workspaceRoot, repoEntry) : null;
-  const changelogConfig = requirement.config ?? { format: 'keep-a-changelog' as const, path: 'CHANGELOG.md' };
+  const changelogConfig = requirement.config ?? { format: 'keep-a-changelog' as const, path: 'CHANGELOG.md', url: null };
   const changelogPath = repo?.checkedOut ? path.join(repo.resolvedPath, changelogConfig.path) : null;
   const blocked: string[] = [];
 
@@ -3091,6 +3093,7 @@ function createMergeChangelogPlan(
       currentBranch: repo?.branch ?? null,
       changelogPath: null,
       changelogFormat: changelogConfig.format,
+      changelogUrl: changelogConfig.url,
       changelogFile: null,
       version: null,
       actionsHeadSha: null,
@@ -3124,6 +3127,7 @@ function createMergeChangelogPlan(
     currentBranch: repo?.branch ?? null,
     changelogPath,
     changelogFormat: changelogConfig.format,
+    changelogUrl: changelogConfig.url,
     changelogFile: null,
     version: null,
     actionsHeadSha: null,
@@ -3877,8 +3881,13 @@ function buildFinalVictoryComment(
     `- Merge gate: passed`,
     `- Demo e2e: ${mergeE2E.status}${mergeE2E.skipReason ? ` (${mergeE2E.skipReason})` : ''}`,
     `- Version bump: ${mergeBump.status}${mergeBump.skipReason ? ` (${mergeBump.skipReason})` : ''}`,
-    `- Changelog: ${mergeChangelog.status}${mergeChangelog.skipReason ? ` (${mergeChangelog.skipReason})` : ''}`,
+    `- Changelog: ${formatFinalChangelogCheck(mergeChangelog)}`,
   ].join('\n');
+}
+
+export function formatFinalChangelogCheck(mergeChangelog: MergeChangelogResult) {
+  const status = `${mergeChangelog.status}${mergeChangelog.skipReason ? ` (${mergeChangelog.skipReason})` : ''}`;
+  return mergeChangelog.changelogUrl ? `${status} ([public changelog](${mergeChangelog.changelogUrl}))` : status;
 }
 
 function buildFinalIssueCommentPlan(

@@ -10,6 +10,7 @@ merge:
     enabled: true
     format: openchangelog
     path: release-notes
+    url: https://changelog.sdk.flopay.com
 ```
 
 Legacy `merge.changelog: true` still means "update `CHANGELOG.md`". New client-facing repos should prefer `format: openchangelog`.
@@ -17,6 +18,8 @@ Legacy `merge.changelog: true` still means "update `CHANGELOG.md`". New client-f
 Because these notes are public, `warroom pr merge` asks for explicit changelog approval before launching the adapter in interactive terminals. Non-interactive merges must pass `--confirm-changelog`; otherwise War Room skips the changelog closeout after the PR merge.
 
 When `merge.bump` is enabled, War Room asks whether to run the configured package version bump before PR merge. Approved changelog updates read package versions from the merged bump, so the public release note filename and commit message can use the released version.
+
+Set `url` to the public changelog site. War Room includes that link in the final victory update so the issue closeout points readers to the client-facing changelog.
 
 ## File Format
 

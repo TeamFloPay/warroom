@@ -19,6 +19,7 @@ const ChangelogSchema = z.union([
     enabled: z.boolean().default(true),
     format: z.enum(['keep-a-changelog', 'openchangelog']).default('keep-a-changelog'),
     path: z.string().optional(),
+    url: z.string().url().optional(),
   }),
 ]);
 
@@ -98,6 +99,7 @@ function normalizeChangelogConfig(changelog: z.infer<typeof ChangelogSchema>) {
       enabled: changelog,
       format: 'keep-a-changelog' as const,
       path: 'CHANGELOG.md',
+      url: null as string | null,
     };
   }
 
@@ -105,6 +107,7 @@ function normalizeChangelogConfig(changelog: z.infer<typeof ChangelogSchema>) {
     enabled: changelog.enabled,
     format: changelog.format,
     path: changelog.path ?? (changelog.format === 'openchangelog' ? 'release-notes' : 'CHANGELOG.md'),
+    url: changelog.url ?? null,
   };
 }
 

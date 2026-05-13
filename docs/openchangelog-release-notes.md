@@ -24,12 +24,13 @@ Set `url` to the public changelog site. War Room includes that link in the final
 ## File Format
 
 Create one Markdown file per release under the configured folder, usually `release-notes/`.
+The frontmatter `title` must start with the release version in `vX.Y.Z - ` format.
 
 Use this structure:
 
 ```markdown
 ---
-title: Checkout fallback improvements
+title: v1.2.3 - Checkout fallback improvements
 description: Buyers now see only payment methods that can complete successfully in their browser.
 publishedAt: "2026-05-12T09:00:00.000Z"
 tags:
@@ -70,7 +71,7 @@ These notes are public and client-facing.
 
 ```markdown
 ---
-title: Wallet fallback cleanup
+title: v1.2.3 - Wallet fallback cleanup
 description: Unsupported wallet options are now hidden so buyers can continue with available payment methods.
 publishedAt: "2026-05-12T09:00:00.000Z"
 tags:

@@ -2060,6 +2060,28 @@ describe('phase-1 CLI', () => {
     expect(readFileSync(path.join(result.artifact!.runDir, 'summary.md'), 'utf8')).toContain('ok node -e "console.log(42)"');
   });
 
+  it('warns about dirty sibling repos without blocking the target commit', () => {
+    const { root, sdk, demo } = makeCommitFixture();
+    writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
+    writeFileSync(path.join(demo, 'scratch.txt'), 'parallel demo work\n');
+
+    const result = runCommitCreate(root, {
+      repo: 'sdk',
+      confirm: true,
+      all: true,
+      push: false,
+      message: 'chore(sdk): save fixture',
+      validate: ['node -e "console.log(42)"'],
+    });
+
+    expect(result.warnings).toEqual(['Other child repos are dirty: demo']);
+    expect(result.blocked).toEqual([]);
+    expect(result.validation[0]?.ok).toBe(true);
+    expect(result.committed).toBe(true);
+    expect(spawnSync('git', ['status', '--short'], { cwd: sdk, encoding: 'utf8' }).stdout.trim()).toBe('');
+    expect(spawnSync('git', ['status', '--short'], { cwd: demo, encoding: 'utf8' }).stdout.trim()).toBe('?? scratch.txt');
+  });
+
   it('infers the commit repo when run from a mapped child checkout', async () => {
     const { sdk } = makeCommitFixture();
     writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
@@ -2073,6 +2095,36 @@ describe('phase-1 CLI', () => {
     expect(lines).toContain(`Path: ${sdk}`);
     expect(lines).toContain('Suggested message: chore(sdk): update war room workflow');
     expect(lines).toContain('?? index.ts (unstaged)');
+  });
+
+  it('prints dirty sibling repos as commit warnings', async () => {
+    const { sdk, demo } = makeCommitFixture();
+    writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
+    writeFileSync(path.join(demo, 'scratch.txt'), 'parallel demo work\n');
+
+    const lines: string[] = [];
+    const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+    await program.parseAsync(['node', 'warroom', 'commit', 'create']);
+
+    expect(lines).toContain('Commit create for sdk: preflight only');
+    expect(lines).toContain('warning: Other child repos are dirty: demo');
+    expect(lines.some((line) => line === 'blocked: Other child repos are dirty: demo')).toBe(false);
+  });
+
+  it('infers the commit repo from an explicit mapped issue', () => {
+    const { root, sdk, demo } = makeCommitFixture();
+    spawnSync('git', ['config', 'branch.main.warroom-issue', 'TeamFloPay/sdk#63'], { cwd: sdk });
+    spawnSync('git', ['config', 'branch.main.warroom-issue', 'TeamFloPay/demo#7'], { cwd: demo });
+    writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
+    writeFileSync(path.join(demo, 'scratch.txt'), 'parallel demo work\n');
+
+    const result = runCommitCreate(root, { issue: 'TeamFloPay/sdk#63' });
+
+    expect(result.repo).toBe('sdk');
+    expect(result.issue).toBe('TeamFloPay/sdk#63');
+    expect(result.warnings).toEqual(['Other child repos are dirty: demo']);
+    expect(result.blocked).toEqual([]);
   });
 
   it('infers the commit repo from War Room root using active branch metadata', async () => {
@@ -2706,7 +2758,7 @@ describe('phase-1 CLI', () => {
         encoding: 'utf8',
       });
       expect(remoteNote.status).toBe(0);
-      expect(remoteNote.stdout).toContain('title: Ready SDK PR');
+      expect(remoteNote.stdout).toContain('title: v1.0.1 - Ready SDK PR');
       expect(remoteNote.stdout).toContain('publishedAt:');
       expect(remoteNote.stdout).toContain('- SDK');
       expect(remoteNote.stdout).toContain('Ready SDK PR updates the SDK behavior.');
@@ -2720,6 +2772,103 @@ describe('phase-1 CLI', () => {
         encoding: 'utf8',
       });
       expect(remoteSubject.stdout.trim()).toBe('docs(changelog): add release notes for 1.0.1 [skip-ci]');
+    } finally {
+      process.env.PATH = originalPath;
+      for (const key of envKeys) {
+        const value = originalEnv[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it('ignores failed Dependabot update runs while waiting for changelog actions', async () => {
+    const { root, sdk, sdkRemote } = makeChangelogMergeFixture({ openchangelog: true });
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeChangelogMergeGhFixture(bin, sdkRemote, { dependabotFailure: true });
+    writeOpenChangelogCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    const envKeys = [
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS',
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS',
+    ] as const;
+    const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS = '0';
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS = '0';
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Merge changelog: passed');
+      expect(output).not.toContain('Dependabot');
+    } finally {
+      process.env.PATH = originalPath;
+      for (const key of envKeys) {
+        const value = originalEnv[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it('can resume only the changelog closeout after a PR has already merged', async () => {
+    const { root, sdk, sdkRemote } = makeChangelogMergeFixture({ openchangelog: true });
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeChangelogMergeGhFixture(bin, sdkRemote, { merged: true });
+    writeOpenChangelogCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    const envKeys = [
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS',
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS',
+    ] as const;
+    const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS = '0';
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS = '0';
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--resume-changelog',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Merge e2e: skipped (Skipped by --resume-changelog after PR merge.)');
+      expect(output).toContain('Merge changelog: passed');
+      expect(output).toContain('Merged: yes');
+
+      const remoteNote = spawnSync('git', ['--git-dir', sdkRemote, 'show', 'refs/heads/main:release-notes/v1.0.1.ready-sdk-pr.md'], {
+        encoding: 'utf8',
+      });
+      expect(remoteNote.status).toBe(0);
     } finally {
       process.env.PATH = originalPath;
       for (const key of envKeys) {
@@ -2771,6 +2920,51 @@ describe('phase-1 CLI', () => {
       });
       expect(remoteNote.stdout).toContain('The first SDK release is available.');
       expect(remoteNote.stdout).not.toContain('Rewritten existing note.');
+    } finally {
+      process.env.PATH = originalPath;
+      for (const key of envKeys) {
+        const value = originalEnv[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it('rejects OpenChangelog release note titles without the version prefix', async () => {
+    const { root, sdk, sdkRemote } = makeChangelogMergeFixture({ openchangelog: true });
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeChangelogMergeGhFixture(bin, sdkRemote);
+    writeOpenChangelogMissingVersionTitleCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    const envKeys = [
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS',
+      'WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS',
+    ] as const;
+    const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS = '0';
+    process.env.WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS = '0';
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync([
+        'node',
+        'warroom',
+        'pr',
+        'merge',
+        '--pr',
+        'TeamFloPay/sdk#655',
+        '--confirm',
+        '--confirm-changelog',
+      ]);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Merge changelog: failed');
+      expect(output).toContain('OpenChangelog release-note title must start with "v1.0.1 - "');
     } finally {
       process.env.PATH = originalPath;
       for (const key of envKeys) {
@@ -5012,9 +5206,50 @@ process.stdin.on('end', () => process.exit(0));
   chmodSync(codexPath, 0o755);
 }
 
-function writeChangelogMergeGhFixture(bin: string, sdkRemote: string, options: { releaseBump?: boolean } = {}) {
+function seedMergedMainForChangelogFixture(sdkRemote: string, releaseBump: boolean) {
+  const worktree = mkdtempSync(path.join(tmpdir(), 'sdk-already-merged-'));
+  try {
+    let result = spawnSync('git', ['clone', '--branch', 'main', sdkRemote, worktree], { encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr);
+    spawnSync('git', ['config', 'user.email', 'warroom@example.com'], { cwd: worktree });
+    spawnSync('git', ['config', 'user.name', 'War Room'], { cwd: worktree });
+    result = spawnSync('git', ['fetch', 'origin', 'feature/sdk:refs/remotes/origin/feature/sdk'], {
+      cwd: worktree,
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) throw new Error(result.stderr);
+    result = spawnSync('git', ['merge', '--squash', 'origin/feature/sdk'], { cwd: worktree, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr);
+    if (releaseBump) {
+      const packagePath = path.join(worktree, 'package.json');
+      const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+      packageJson.version = '1.0.1';
+      writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
+    }
+    result = spawnSync('git', ['add', '-A'], { cwd: worktree, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr);
+    result = spawnSync('git', ['commit', '-m', releaseBump ? 'chore(release): 1.0.1' : 'feat: ready sdk pr'], {
+      cwd: worktree,
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) throw new Error(result.stderr);
+    result = spawnSync('git', ['push', 'origin', 'main'], { cwd: worktree, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr);
+  } finally {
+    rmSync(worktree, { recursive: true, force: true });
+  }
+}
+
+function writeChangelogMergeGhFixture(
+  bin: string,
+  sdkRemote: string,
+  options: { releaseBump?: boolean; dependabotFailure?: boolean; merged?: boolean } = {}
+) {
   const ghPath = path.join(bin, 'gh');
   const releaseBump = options.releaseBump !== false;
+  const dependabotFailure = options.dependabotFailure === true;
+  const merged = options.merged === true;
+  if (merged) seedMergedMainForChangelogFixture(sdkRemote, releaseBump);
   writeFileSync(
     ghPath,
     `#!/usr/bin/env node
@@ -5025,6 +5260,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const sdkRemote = ${JSON.stringify(sdkRemote)};
 const releaseBump = ${JSON.stringify(releaseBump)};
+const dependabotFailure = ${JSON.stringify(dependabotFailure)};
+const merged = ${JSON.stringify(merged)};
 
 function json(value) {
   process.stdout.write(JSON.stringify(value));
@@ -5049,12 +5286,15 @@ if (args[0] === 'pr' && args[1] === 'view') {
     title: 'Ready SDK PR',
     body: 'Adds the SDK behavior that should be reflected in the changelog.',
     url: 'https://github.com/TeamFloPay/sdk/pull/655',
-    mergeStateStatus: 'CLEAN',
-    mergeable: 'MERGEABLE',
+    mergeStateStatus: merged ? 'UNKNOWN' : 'CLEAN',
+    mergeable: merged ? 'UNKNOWN' : 'MERGEABLE',
     reviewDecision: 'APPROVED',
     headRefName: 'feature/sdk',
     baseRefName: 'main',
     isDraft: false,
+    state: merged ? 'MERGED' : 'OPEN',
+    mergedAt: merged ? '2026-05-13T14:11:23Z' : null,
+    mergeCommit: merged ? { oid: remoteMainSha() } : null,
     files: [
       { path: 'index.ts', additions: 1, deletions: 0 }
     ],
@@ -5077,20 +5317,39 @@ if (args[0] === 'api' && args[1] === 'repos/TeamFloPay/sdk/commits/main') {
 
 if (args[0] === 'run' && args[1] === 'list') {
   const sha = remoteMainSha();
-  json([
+  const runs = [
     {
       databaseId: 42,
       name: 'Release',
+      displayTitle: 'Release',
       status: 'COMPLETED',
       conclusion: 'SUCCESS',
+      event: 'workflow_run',
       headSha: sha,
       url: 'https://github.com/TeamFloPay/sdk/actions/runs/42'
     }
-  ]);
+  ];
+  if (dependabotFailure) {
+    runs.push({
+      databaseId: 43,
+      name: 'npm_and_yarn in / for knip, turbo - Update #123',
+      displayTitle: 'npm_and_yarn in / for knip, turbo - Update #123',
+      status: 'COMPLETED',
+      conclusion: 'FAILURE',
+      event: 'dynamic',
+      headSha: sha,
+      url: 'https://github.com/TeamFloPay/sdk/actions/runs/43'
+    });
+  }
+  json(runs);
   process.exit(0);
 }
 
 if (args[0] === 'pr' && args[1] === 'merge') {
+  if (merged) {
+    process.stderr.write('Pull request already merged.\\n');
+    process.exit(1);
+  }
   const worktree = mkdtempSync(path.join(tmpdir(), 'sdk-release-'));
   let result = spawnSync('git', ['clone', '--branch', 'main', sdkRemote, worktree], { encoding: 'utf8' });
   if (result.status !== 0) {
@@ -5174,12 +5433,45 @@ fs.writeFileSync(
   path.join(releaseNotes, 'v1.0.1.ready-sdk-pr.md'),
   [
     '---',
-    'title: Ready SDK PR',
+    'title: v1.0.1 - Ready SDK PR',
     'description: Ready SDK PR updates the SDK behavior.',
     'publishedAt: "2026-05-12T09:00:00.000Z"',
     'tags:',
     '  - SDK',
     '  - Improvement',
+    '---',
+    '',
+    'Ready SDK PR updates the SDK behavior.',
+    ''
+  ].join('\\n')
+);
+process.exit(0);
+`
+  );
+  chmodSync(codexPath, 0o755);
+}
+
+function writeOpenChangelogMissingVersionTitleCodexFixture(bin: string) {
+  const codexPath = path.join(bin, 'codex');
+  writeFileSync(
+    codexPath,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const fs = require('node:fs');
+const path = require('node:path');
+const cdIndex = args.indexOf('--cd');
+const cwd = cdIndex === -1 ? process.cwd() : args[cdIndex + 1];
+const releaseNotes = path.join(cwd, 'release-notes');
+fs.mkdirSync(releaseNotes, { recursive: true });
+fs.writeFileSync(
+  path.join(releaseNotes, 'v1.0.1.ready-sdk-pr.md'),
+  [
+    '---',
+    'title: Ready SDK PR',
+    'description: Ready SDK PR updates the SDK behavior.',
+    'publishedAt: "2026-05-12T09:00:00.000Z"',
+    'tags:',
+    '  - SDK',
     '---',
     '',
     'Ready SDK PR updates the SDK behavior.',

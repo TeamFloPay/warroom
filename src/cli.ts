@@ -944,6 +944,7 @@ function printCommitCreate(output: Output, result: CommitCreateResult) {
       `${validation.ok ? 'ok' : 'failed'} validation: ${validation.command} (exit ${validation.status ?? 'unknown'}, ${validation.durationMs}ms)`
     );
   }
+  for (const warning of result.warnings) output(`warning: ${warning}`);
   for (const blocker of result.blocked) output(`blocked: ${blocker}`);
 }
 
@@ -2028,6 +2029,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--confirm', 'Run configured merge gates, then gh pr merge --squash --delete-branch.')
     .option('--confirm-status', 'Move the linked issue to victory on the Campaign Map.')
     .option('--confirm-changelog', 'Run the guarded post-merge changelog update without asking.')
+    .option('--resume-changelog', 'Resume only the post-merge changelog closeout for an already merged PR.')
     .option('--bump-version <level>', 'Run or skip the configured pre-merge version bump: patch, minor, major, or skip.')
     .option('--summary <text>', 'Victory summary to include in local artifacts and optional comments.')
     .option('--post-summary', 'Plan or post victory summary comments to the PR and linked issue.')
@@ -2043,6 +2045,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
       confirm?: boolean;
       confirmStatus?: boolean;
       confirmChangelog?: boolean;
+      resumeChangelog?: boolean;
       bumpVersion?: string;
       summary?: string;
       postSummary?: boolean;
@@ -2071,6 +2074,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         confirm: opts.confirm,
         confirmStatus: opts.confirmStatus,
         confirmChangelog: opts.confirmChangelog,
+        resumeChangelog: opts.resumeChangelog,
         bumpVersion,
         bumpConfirmation:
           interactive && !bumpVersion
@@ -2133,6 +2137,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
             allowUnresolvedReviewThreads,
             confirmStatus: opts.confirmStatus,
             confirmChangelog: opts.confirmChangelog,
+            resumeChangelog: opts.resumeChangelog,
             bumpVersion,
             bumpConfirmation: bumpVersion ? undefined : (plan: MergeBumpResult) => promptMergeBumpChoice(output, input, plan),
             changelogConfirmation: opts.confirmChangelog

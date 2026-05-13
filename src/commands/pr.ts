@@ -54,6 +54,7 @@ export type PrOptions = {
   cleanupLocal?: boolean;
   confirmCleanup?: boolean;
   confirmChangelog?: boolean;
+  resumeChangelog?: boolean;
   bumpVersion?: VersionBumpChoice;
   issueComment?: boolean;
   checkInMinutes?: number;
@@ -3246,6 +3247,7 @@ type WorkflowRun = {
   displayTitle?: string;
   status?: string;
   conclusion?: string | null;
+  event?: string;
   headSha?: string;
   url?: string;
 };
@@ -3270,6 +3272,12 @@ function completedRun(run: WorkflowRun) {
   return (run.status ?? '').toUpperCase() === 'COMPLETED';
 }
 
+function isDependabotUpdateRun(run: WorkflowRun) {
+  const event = (run.event ?? '').toLowerCase();
+  const label = `${run.name ?? ''} ${run.displayTitle ?? ''}`;
+  return event === 'dynamic' && /\bUpdate #\d+\b/.test(label);
+}
+
 function branchHeadSha(repo: string, branch: string) {
   return ghTextStrict(['api', `repos/${repo}/commits/${encodeURIComponent(branch)}`, '--jq', '.sha']);
 }
@@ -3285,7 +3293,7 @@ function listWorkflowRuns(repo: string, branch: string, headSha: string) {
     '--limit',
     '20',
     '--json',
-    'databaseId,name,displayTitle,status,conclusion,headSha,url',
+    'databaseId,name,displayTitle,status,conclusion,event,headSha,url',
   ]);
   return runs.filter((run) => run.headSha === headSha);
 }
@@ -3305,7 +3313,7 @@ async function waitForActionsForCurrentHead(
       lastHeadSha = headSha;
     }
 
-    const runs = listWorkflowRuns(repo, branch, headSha);
+    const runs = listWorkflowRuns(repo, branch, headSha).filter((run) => !isDependabotUpdateRun(run));
     if (runs.length > 0) {
       const failed = runs.filter((run) => completedRun(run) && !successfulRunConclusion(run));
       if (failed.length > 0) {
@@ -3404,6 +3412,19 @@ function readOpenChangelogNotes(changelogPath: string) {
     .slice(0, 3);
 }
 
+function markdownFrontmatterTitle(markdown: string) {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  const titleLine = match[1]!
+    .split(/\r?\n/)
+    .find((line) => line.trimStart().startsWith('title:'));
+  if (!titleLine) return null;
+  return titleLine
+    .slice(titleLine.indexOf(':') + 1)
+    .trim()
+    .replace(/^["']|["']$/g, '');
+}
+
 function publicChangelogGuardrails() {
   return [
     '- This is a public, client-facing changelog. Write for merchants, developers, and operators who need to understand customer impact.',
@@ -3441,10 +3462,11 @@ function buildChangelogPrompt(options: {
   const releaseDate = options.nowIso.slice(0, 10);
 
   if (options.changelogFormat === 'openchangelog') {
+    const titlePrefix = latestVersion ? `v${latestVersion} - ` : `${releaseDate} - `;
     const examples = [
       'Example OpenChangelog release note:',
       '---',
-      'title: Checkout fallback improvements',
+      `title: ${titlePrefix}Checkout fallback improvements`,
       'description: Buyers now see only the payment methods that can complete successfully in their browser.',
       `publishedAt: "${options.nowIso}"`,
       'tags:',
@@ -3480,6 +3502,7 @@ function buildChangelogPrompt(options: {
       'OpenChangelog format:',
       '- Use YAML frontmatter between `---` separators.',
       '- Required frontmatter fields: `title`, `description`, `publishedAt`, and `tags`.',
+      `- The frontmatter title must start with \`${titlePrefix}\`, followed by a concise release title.`,
       '- `publishedAt` must be an ISO 8601 datetime. Use the current timestamp supplied below unless the release notes already imply a better release timestamp.',
       '- The body is normal Markdown. Prefer short sections like `### What changed`, `### Why it matters`, and `### Developer notes` when useful.',
       '',
@@ -3843,6 +3866,16 @@ async function runMergeChangelog(
         );
       }
       changelogFile = releaseNote.path;
+      if (version) {
+        const releaseNoteMarkdown = readFileSync(path.join(plan.path, releaseNote.path), 'utf8');
+        const title = markdownFrontmatterTitle(releaseNoteMarkdown);
+        const expectedPrefix = `v${version} - `;
+        if (!title?.startsWith(expectedPrefix)) {
+          throw new Error(
+            `OpenChangelog release-note title must start with "${expectedPrefix}": ${releaseNote.path}.`
+          );
+        }
+      }
     } else if (!changed.includes(changelogRelativePath)) {
       throw new Error(`LLM adapter completed but did not modify ${changelogRelativePath}.`);
     }
@@ -4758,6 +4791,9 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     headRefName?: string;
     baseRefName?: string;
     isDraft?: boolean;
+    state?: string;
+    mergedAt?: string;
+    mergeCommit?: { oid?: string } | null;
     files?: Array<{ path?: string; additions?: number; deletions?: number }>;
     reviewRequests?: Array<{ login?: string; name?: string; slug?: string; __typename?: string }>;
     latestReviews?: Array<{ state?: string; author?: { login?: string }; submittedAt?: string }>;
@@ -4779,16 +4815,19 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
       '--repo',
       ref.repo,
       '--json',
-      'title,body,url,mergeStateStatus,mergeable,reviewDecision,headRefName,baseRefName,isDraft,files,reviewRequests,latestReviews,statusCheckRollup',
+      'title,body,url,mergeStateStatus,mergeable,reviewDecision,headRefName,baseRefName,isDraft,state,mergedAt,mergeCommit,files,reviewRequests,latestReviews,statusCheckRollup',
     ],
     {}
   );
   const issueRef = options.issue ?? closingIssueRefFromText(ref.repo, pr.body);
   const resolvedOptions = { ...options, issue: issueRef ?? undefined };
   const reviewThreads = listPullRequestReviewThreads(ref);
-  const readiness = buildMergeReadiness(pr, reviewThreads, {
+  let readiness = buildMergeReadiness(pr, reviewThreads, {
     allowUnresolvedReviewThreads: options.allowUnresolvedReviewThreads,
   });
+  if (options.resumeChangelog && pr.state === 'MERGED') {
+    readiness = { ...readiness, blocked: [], details: [] };
+  }
   const targetBase = pr.baseRefName ?? loadRepoManifest(workspaceRoot).defaults.default_branch;
   const configuredMergePlaywright = mergePlaywrightRequirement(workspaceRoot, ref.repo);
   const mergePlaywright = options.skipMergeE2E ? mergePlaywrightSkipRequirement() : configuredMergePlaywright;
@@ -4799,6 +4838,18 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
   let mergeBump = createMergeBumpPlan(workspaceRoot, ref.repo, targetBase, pr.headRefName ?? null, mergeBumpRequirementResult);
   let mergePostMerge = createMergePostMergePlan(workspaceRoot, ref.repo, targetBase, mergePostMergeRequirementResult);
   let mergeChangelog = createMergeChangelogPlan(workspaceRoot, ref.repo, targetBase, mergeChangelogRequirementResult);
+  if (options.resumeChangelog) {
+    mergeE2E = createMergeE2EPlan(workspaceRoot, {
+      required: false,
+      skipReason: 'Skipped by --resume-changelog after PR merge.',
+    });
+    if (mergeBump.required) {
+      mergeBump = mergeBumpSkipResult(mergeBump, 'Skipped by --resume-changelog after PR merge.');
+    }
+    if (mergePostMerge.required) {
+      mergePostMerge = mergePostMergeSkipResult(mergePostMerge, 'Skipped by --resume-changelog after PR merge.');
+    }
+  }
   const summary = buildVictorySummary(options.pr, issueRef ?? undefined, pr, readiness, options.summary);
   const blockerDetails = readiness.details.length
     ? readiness.details
@@ -4876,7 +4927,7 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     'Victory summary:',
     summary,
   ].join('\n');
-  let merged = false;
+  let merged = options.resumeChangelog === true && pr.state === 'MERGED';
 
   if (options.confirm) {
     if (readiness.blocked.length > 0) throw new Error(`PR is not merge-ready: ${readiness.blocked.join(' ')}`);
@@ -4886,39 +4937,9 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     if (mergeChangelog.required && mergeChangelog.blocked.length > 0) {
       throw new Error(`PR cannot be merged until the changelog gate is ready. ${mergeChangelog.blocked.join(' ')}`);
     }
-    mergeE2E = await runMergeE2E(workspaceRoot, mergePlaywright, options);
-    if (mergeE2E.required && mergeE2E.status !== 'passed') {
-      const blockers = [...mergeE2E.blocked, mergeE2E.error].filter(Boolean).join(' ');
-      throw new Error(`PR cannot be merged until demo Playwright e2e passes. ${blockers}`.trim());
-    }
-    if (mergeBump.required) {
-      const bumpChoice = await versionBumpChoice(resolvedOptions, mergeBump);
-      if (bumpChoice === 'skip') {
-        const skipReason =
-          resolvedOptions.bumpVersion === 'skip'
-            ? 'Skipped by --bump-version skip.'
-            : resolvedOptions.bumpConfirmation
-              ? 'Skipped by user during interactive version bump confirmation.'
-              : 'Pass --bump-version patch, --bump-version minor, or --bump-version major to run the version bump.';
-        mergeBump = mergeBumpSkipResult(mergeBump, skipReason);
-      } else {
-        mergeBump = await runMergeBump(mergeBump, resolvedOptions, bumpChoice);
-      }
-    }
-    if (mergeBump.required && mergeBump.status === 'failed') {
-      if (mergeChangelog.required) {
-        mergeChangelog = mergeChangelogSkipResult(mergeChangelog, 'Skipped because the required version bump failed before PR merge.');
-      }
-    } else {
-      const result = spawnSync(
-        'gh',
-        ['pr', 'merge', String(ref.number), '--repo', ref.repo, '--squash', '--delete-branch'],
-        { stdio: 'inherit' }
-      );
-      if (result.status !== 0) throw new Error(`gh pr merge failed with exit ${result.status ?? 'unknown'}.`);
-      merged = true;
-      if (mergePostMerge.required) {
-        mergePostMerge = await runMergePostMerge(mergePostMerge, resolvedOptions);
+    if (options.resumeChangelog) {
+      if (pr.state !== 'MERGED') {
+        throw new Error(`--resume-changelog requires an already merged PR; ${options.pr} is ${pr.state ?? 'unknown'}.`);
       }
       if (mergeChangelog.required) {
         const confirmedChangelog = await shouldRunMergeChangelog(resolvedOptions, mergeChangelog);
@@ -4930,6 +4951,53 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
                 ? 'Skipped by user during interactive changelog confirmation.'
                 : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
             );
+      }
+    } else {
+      mergeE2E = await runMergeE2E(workspaceRoot, mergePlaywright, options);
+      if (mergeE2E.required && mergeE2E.status !== 'passed') {
+        const blockers = [...mergeE2E.blocked, mergeE2E.error].filter(Boolean).join(' ');
+        throw new Error(`PR cannot be merged until demo Playwright e2e passes. ${blockers}`.trim());
+      }
+      if (mergeBump.required) {
+        const bumpChoice = await versionBumpChoice(resolvedOptions, mergeBump);
+        if (bumpChoice === 'skip') {
+          const skipReason =
+            resolvedOptions.bumpVersion === 'skip'
+              ? 'Skipped by --bump-version skip.'
+              : resolvedOptions.bumpConfirmation
+                ? 'Skipped by user during interactive version bump confirmation.'
+                : 'Pass --bump-version patch, --bump-version minor, or --bump-version major to run the version bump.';
+          mergeBump = mergeBumpSkipResult(mergeBump, skipReason);
+        } else {
+          mergeBump = await runMergeBump(mergeBump, resolvedOptions, bumpChoice);
+        }
+      }
+      if (mergeBump.required && mergeBump.status === 'failed') {
+        if (mergeChangelog.required) {
+          mergeChangelog = mergeChangelogSkipResult(mergeChangelog, 'Skipped because the required version bump failed before PR merge.');
+        }
+      } else {
+        const result = spawnSync(
+          'gh',
+          ['pr', 'merge', String(ref.number), '--repo', ref.repo, '--squash', '--delete-branch'],
+          { stdio: 'inherit' }
+        );
+        if (result.status !== 0) throw new Error(`gh pr merge failed with exit ${result.status ?? 'unknown'}.`);
+        merged = true;
+        if (mergePostMerge.required) {
+          mergePostMerge = await runMergePostMerge(mergePostMerge, resolvedOptions);
+        }
+        if (mergeChangelog.required) {
+          const confirmedChangelog = await shouldRunMergeChangelog(resolvedOptions, mergeChangelog);
+          mergeChangelog = confirmedChangelog
+            ? await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId })
+            : mergeChangelogSkipResult(
+                mergeChangelog,
+                resolvedOptions.changelogConfirmation
+                  ? 'Skipped by user during interactive changelog confirmation.'
+                  : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
+              );
+        }
       }
     }
   }
@@ -4947,7 +5015,7 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     issueRef ?? null,
     options.pr,
     pr,
-    merged,
+    merged && options.confirm === true,
     completionReadiness,
     mergeE2E,
     mergeBump,
@@ -4956,14 +5024,15 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
     options.issueComment
   );
   const localCleanup = planLocalCleanup(workspaceRoot, ref.repo, pr.headRefName, pr.baseRefName, options);
-  const applyVictoryCloseout = (merged || options.confirmStatus === true) && completionReadiness.blocked.length === 0;
+  const applyVictoryCloseout =
+    (options.confirmStatus === true || (merged && options.confirm === true)) && completionReadiness.blocked.length === 0;
   const campaignStatus = issueRef
     ? setCampaignStatus(issueRef, 'victory', { confirm: applyVictoryCloseout })
     : null;
   const labelUpdate = issueRef
     ? setIssueWorkflowLabel(issueRef, 'victory', applyVictoryCloseout)
     : null;
-  const usageSummary = merged && issueRef ? summarizeIssueUsage(workspaceRoot, issueRef) : null;
+  const usageSummary = merged && options.confirm === true && issueRef ? summarizeIssueUsage(workspaceRoot, issueRef) : null;
   const artifact = options.writeArtifact
     ? createRunArtifact(workspaceRoot, 'pr-merge', {
         'prompt.md': prompt,

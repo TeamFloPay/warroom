@@ -56,6 +56,7 @@ export type CommitCreateResult = {
   pushCommand: string | null;
   pushSkippedReason: string | null;
   issueComment: IssueProgressCommentResult | null;
+  warnings: string[];
   blocked: string[];
   artifact?: RunArtifact;
 };
@@ -161,6 +162,13 @@ function currentBranchIssueRef(repo: string, branch: string | null, repoPath: st
 
   const match = branch?.match(/^warroom\/(\d+)-/);
   return match ? `${repo}#${match[1]}` : null;
+}
+
+function inferRepoFromIssue(repos: RepoHealth[], issue: string | undefined) {
+  if (!issue) return null;
+  const parts = issueRefParts(issue);
+  if (!parts) return null;
+  return singleRepoId(repos.filter((repo) => repo.github === parts.repo), `issue ${issue}`);
 }
 
 function branchHasWarRoomMetadata(repo: RepoHealth) {
@@ -310,6 +318,13 @@ function markdownSummary(result: Omit<CommitCreateResult, 'artifact'>) {
     for (const validation of result.validation) {
       lines.push(`- ${validation.ok ? 'ok' : 'failed'} ${validation.command} (${validation.durationMs}ms, exit ${validation.status ?? 'unknown'})`);
     }
+  }
+
+  lines.push('', '## Warnings');
+  if (result.warnings.length === 0) {
+    lines.push('', 'No warnings.');
+  } else {
+    for (const warning of result.warnings) lines.push(`- ${warning}`);
   }
 
   lines.push('', '## Blockers');
@@ -558,6 +573,7 @@ export function runCommitCreate(workspaceRoot: string, options: CommitCreateOpti
   const repoId =
     options.repo ??
     inferRepoFromPath(repoHealth, options.currentPath ?? process.cwd()) ??
+    inferRepoFromIssue(repoHealth, options.issue) ??
     inferRepoFromMappedBranches(repoHealth, manifest.defaults.default_branch);
   if (!repoId) {
     throw new Error(
@@ -569,13 +585,11 @@ export function runCommitCreate(workspaceRoot: string, options: CommitCreateOpti
   const issueRef = options.issue ?? currentBranchIssueRef(repo.github, repo.branch, repo.resolvedPath);
   const dirtyRepos = repoHealth
     .filter((entry) => entry.id !== repo.id && entry.clean === false);
+  const warnings = dirtyRepos.length > 0 ? [`Other child repos are dirty: ${dirtyRepos.map((entry) => entry.id).join(', ')}`] : [];
   const blocked: string[] = [];
 
   if (!repo.checkedOut) blocked.push(`Repo checkout is missing: ${repo.resolvedPath}`);
   if (repo.clean !== false) blocked.push('Repo has no changes to commit.');
-  if (dirtyRepos.length > 0) {
-    blocked.push(`Other child repos are dirty: ${dirtyRepos.map((entry) => entry.id).join(', ')}`);
-  }
 
   const changes = repo.clean === false ? repo.statusLines.map(parseStatusLine) : [];
   const stagedChanges = changes.filter((change) => change.staged);
@@ -641,6 +655,7 @@ export function runCommitCreate(workspaceRoot: string, options: CommitCreateOpti
     pushed,
     pushCommand: pushPlan.command,
     pushSkippedReason: pushPlan.skippedReason,
+    warnings,
     blocked,
   };
   const issueCommentBody =

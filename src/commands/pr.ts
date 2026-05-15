@@ -106,15 +106,6 @@ export type MergeChangelogResult = {
   changelogUrl: string | null;
   changelogFile: string | null;
   version: string | null;
-  actionsHeadSha: string | null;
-  actionsRuns: Array<{
-    databaseId: number | null;
-    name: string;
-    status: string;
-    conclusion: string | null;
-    headSha: string | null;
-    url: string | null;
-  }>;
   durationMs: number | null;
   committed: boolean;
   pushed: boolean;
@@ -337,9 +328,6 @@ const DEFAULT_BACKEND_READY_PATH = '/v1/health';
 const DEFAULT_BACKEND_READY_PROBE_TIMEOUT_MS = 3_000;
 const DEFAULT_BACKEND_READY_TIMEOUT_MS = 120_000;
 const NODE_USE_SYSTEM_CA_FLAG = '--use-system-ca';
-const DEFAULT_CHANGELOG_ACTIONS_TIMEOUT_MS = 20 * 60_000;
-const DEFAULT_CHANGELOG_ACTIONS_POLL_MS = 15_000;
-const DEFAULT_CHANGELOG_ACTIONS_SETTLE_MS = 5_000;
 const DEFAULT_PR_REVIEW_MAX_LOOPS = 5;
 const DEFAULT_PR_REVIEW_COMMIT_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_PR_REVIEW_CODERABBIT_TIMEOUT_MS = 15 * 60_000;
@@ -3166,18 +3154,6 @@ function createMergePostMergePlan(
   };
 }
 
-function changelogActionsConfig() {
-  const timeout = Number(envValue('WARROOM_MERGE_CHANGELOG_ACTIONS_TIMEOUT_MS', String(DEFAULT_CHANGELOG_ACTIONS_TIMEOUT_MS)));
-  const poll = Number(envValue('WARROOM_MERGE_CHANGELOG_ACTIONS_POLL_MS', String(DEFAULT_CHANGELOG_ACTIONS_POLL_MS)));
-  const settle = Number(envValue('WARROOM_MERGE_CHANGELOG_ACTIONS_SETTLE_MS', String(DEFAULT_CHANGELOG_ACTIONS_SETTLE_MS)));
-
-  return {
-    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_CHANGELOG_ACTIONS_TIMEOUT_MS,
-    pollMs: Number.isFinite(poll) && poll >= 0 ? poll : DEFAULT_CHANGELOG_ACTIONS_POLL_MS,
-    settleMs: Number.isFinite(settle) && settle >= 0 ? settle : DEFAULT_CHANGELOG_ACTIONS_SETTLE_MS,
-  };
-}
-
 function createMergeChangelogPlan(
   workspaceRoot: string,
   githubRepo: string,
@@ -3204,8 +3180,6 @@ function createMergeChangelogPlan(
       changelogUrl: changelogConfig.url,
       changelogFile: null,
       version: null,
-      actionsHeadSha: null,
-      actionsRuns: [],
       durationMs: null,
       committed: false,
       pushed: false,
@@ -3238,8 +3212,6 @@ function createMergeChangelogPlan(
     changelogUrl: changelogConfig.url,
     changelogFile: null,
     version: null,
-    actionsHeadSha: null,
-    actionsRuns: [],
     durationMs: null,
     committed: false,
     pushed: false,
@@ -3247,117 +3219,6 @@ function createMergeChangelogPlan(
     blocked,
     error: null,
   };
-}
-
-type WorkflowRun = {
-  databaseId?: number;
-  name?: string;
-  displayTitle?: string;
-  status?: string;
-  conclusion?: string | null;
-  event?: string;
-  headSha?: string;
-  url?: string;
-};
-
-function normalizeWorkflowRun(run: WorkflowRun): MergeChangelogResult['actionsRuns'][number] {
-  return {
-    databaseId: typeof run.databaseId === 'number' ? run.databaseId : null,
-    name: run.name ?? run.displayTitle ?? 'unknown workflow',
-    status: run.status ?? 'unknown',
-    conclusion: run.conclusion ?? null,
-    headSha: run.headSha ?? null,
-    url: run.url ?? null,
-  };
-}
-
-function successfulRunConclusion(run: WorkflowRun) {
-  const conclusion = (run.conclusion ?? '').toUpperCase();
-  return ['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(conclusion);
-}
-
-function completedRun(run: WorkflowRun) {
-  return (run.status ?? '').toUpperCase() === 'COMPLETED';
-}
-
-function isDependabotUpdateRun(run: WorkflowRun) {
-  const event = (run.event ?? '').toLowerCase();
-  const label = `${run.name ?? ''} ${run.displayTitle ?? ''}`;
-  return event === 'dynamic' && /\bUpdate #\d+\b/.test(label);
-}
-
-function branchHeadSha(repo: string, branch: string) {
-  return ghTextStrict(['api', `repos/${repo}/commits/${encodeURIComponent(branch)}`, '--jq', '.sha']);
-}
-
-function listWorkflowRuns(repo: string, branch: string, headSha: string) {
-  const runs = ghJsonStrict<WorkflowRun[]>([
-    'run',
-    'list',
-    '--repo',
-    repo,
-    '--branch',
-    branch,
-    '--limit',
-    '20',
-    '--json',
-    'databaseId,name,displayTitle,status,conclusion,event,headSha,url',
-  ]);
-  return runs.filter((run) => run.headSha === headSha);
-}
-
-async function waitForActionsForCurrentHead(
-  repo: string,
-  branch: string,
-  config: ReturnType<typeof changelogActionsConfig>,
-  startedAt: number,
-  output?: (message: string) => void
-) {
-  let lastHeadSha: string | null = null;
-  while (Date.now() - startedAt < config.timeoutMs) {
-    const headSha = branchHeadSha(repo, branch);
-    if (headSha !== lastHeadSha) {
-      output?.(`Changelog: waiting for GitHub Actions on ${repo}@${branch} (${headSha.slice(0, 12)})`);
-      lastHeadSha = headSha;
-    }
-
-    const runs = listWorkflowRuns(repo, branch, headSha).filter((run) => !isDependabotUpdateRun(run));
-    if (runs.length > 0) {
-      const failed = runs.filter((run) => completedRun(run) && !successfulRunConclusion(run));
-      if (failed.length > 0) {
-        throw new Error(`GitHub Actions failed for ${repo}@${branch}: ${failed.map((run) => `${run.name ?? run.displayTitle ?? 'workflow'} (${run.conclusion ?? 'unknown'})`).join(', ')}.`);
-      }
-
-      if (runs.every(completedRun)) {
-        output?.(`Changelog: GitHub Actions passed for ${repo}@${branch} (${headSha.slice(0, 12)})`);
-        return { headSha, runs: runs.map(normalizeWorkflowRun) };
-      }
-    }
-
-    await delay(config.pollMs);
-  }
-
-  throw new Error(`Timed out waiting for GitHub Actions to complete successfully on ${repo}@${branch}.`);
-}
-
-async function waitForSettledBranchActions(
-  repo: string,
-  branch: string,
-  output?: (message: string) => void
-) {
-  const config = changelogActionsConfig();
-  const startedAt = Date.now();
-  let latest = await waitForActionsForCurrentHead(repo, branch, config, startedAt, output);
-
-  while (Date.now() - startedAt < config.timeoutMs) {
-    if (config.settleMs > 0) await delay(config.settleMs);
-    const nextHeadSha = branchHeadSha(repo, branch);
-    if (nextHeadSha === latest.headSha) return { ...latest, durationMs: Date.now() - startedAt };
-    output?.(`Changelog: ${repo}@${branch} advanced to ${nextHeadSha.slice(0, 12)}; waiting for the new actions run`);
-    latest = await waitForActionsForCurrentHead(repo, branch, config, startedAt, output);
-  }
-
-  throw new Error(`Timed out waiting for ${repo}@${branch} actions to settle after branch updates.`);
 }
 
 function prepareBranchCheckout(repoPath: string, branch: string) {
@@ -3875,12 +3736,7 @@ async function runMergeChangelog(
   if (!plan.path || !plan.changelogPath) return { ...plan, status: 'failed', error: 'Changelog checkout plan is incomplete.' };
 
   const startedAt = Date.now();
-  let actionsHeadSha: string | null = null;
-  let actionsRuns: MergeChangelogResult['actionsRuns'] = [];
   try {
-    const actions = await waitForSettledBranchActions(plan.repo, plan.base, options.mergeStatus);
-    actionsHeadSha = actions.headSha;
-    actionsRuns = actions.runs;
     options.mergeStatus?.(`Changelog: pulling latest ${plan.base} in ${plan.path}`);
     prepareBranchCheckout(plan.path, plan.base);
 
@@ -3983,8 +3839,6 @@ async function runMergeChangelog(
       status: 'passed',
       version,
       changelogFile,
-      actionsHeadSha,
-      actionsRuns,
       durationMs: Date.now() - startedAt,
       committed: true,
       pushed: true,
@@ -3996,8 +3850,6 @@ async function runMergeChangelog(
     return {
       ...plan,
       status: 'failed',
-      actionsHeadSha,
-      actionsRuns,
       durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     };

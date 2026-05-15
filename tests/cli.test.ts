@@ -71,8 +71,6 @@ describe('phase-1 CLI', () => {
         changelogUrl: 'https://changelog.sdk.flopay.com',
         changelogFile: 'release-notes/v1.0.1.ready-sdk-pr.md',
         version: '1.0.1',
-        actionsHeadSha: 'abc123',
-        actionsRuns: [],
         durationMs: 10,
         committed: true,
         pushed: true,

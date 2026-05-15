@@ -646,7 +646,6 @@ function printPrPlan(output: Output, result: PrPlanResult) {
       );
       if (result.mergeChangelog.changelogFile) output(`Changelog file: ${result.mergeChangelog.changelogFile}`);
       if (result.mergeChangelog.changelogUrl) output(`Changelog URL: ${result.mergeChangelog.changelogUrl}`);
-      output(`Changelog actions: ${result.mergeChangelog.actionsHeadSha ?? 'planned'} (${result.mergeChangelog.actionsRuns.length} runs)`);
       if (result.mergeChangelog.version) output(`Changelog version: ${result.mergeChangelog.version}`);
       output(
         `Changelog commit: ${
@@ -1931,7 +1930,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--pr <owner/repo#number>', 'PR to review. Omit to list open review PRs from active Campaign Map issues.')
     .option('--issue <owner/repo#number>', 'Linked issue to move to skirmish.')
     .option('--dry-run', 'Print the structured handoff and context summary without launching the configured LLM adapter.')
-    .option('--launch', 'Launch the configured LLM adapter. Defaults to dry-run handoff output.')
+    .option('--launch', 'Deprecated; launching is now the default. Pass --dry-run to skip the launch.')
     .option('--check-in-minutes <minutes>', 'Compatibility option; review polling is controlled by WARROOM_PR_REVIEW_* env vars.', (value) => Number(value), 60)
     .option('--confirm-status', 'Move the linked issue to skirmish on the Campaign Map. This is the default when launching review.')
     .option('--no-status', 'Do not move the linked issue to skirmish.')
@@ -1961,20 +1960,8 @@ export function buildProgram(options: BuildProgramOptions = {}) {
           }
 
           output(`Resolved current branch PR: ${inferredPr}`);
-          let launch = opts.launch === true;
-          if (!launch && interactive && opts.dryRun !== true) {
-            launch = await promptConfirmation(
-              output,
-              input,
-              `Start PR review handoff for ${inferredPr} now? This will run \`warroom pr review --pr ${inferredPr} --launch\`. [y/N]`
-            );
-            if (!launch) {
-              printOutcome(output, 'Outcome: no PR review handoff started.');
-              return;
-            }
-          }
-
-          const dryRun = opts.dryRun === true ? true : !launch;
+          const dryRun = opts.dryRun === true;
+          const launch = !dryRun;
           const review = await runPrReview(workspaceRoot, {
             pr: inferredPr,
             issue: opts.issue ?? inferIssueRefForCurrentBranch(workspaceRoot, invocationCwd) ?? undefined,
@@ -2023,15 +2010,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         return;
       }
 
-      let launch = opts.launch === true;
-      if (!launch && !opts.dryRun && interactive && !opts.json) {
-        launch = await promptConfirmation(
-          output,
-          input,
-          `Launch PR review handoff for ${opts.pr} now? [y/N]`
-        );
-      }
-      const dryRun = opts.dryRun === true ? true : !launch;
+      const dryRun = opts.dryRun === true;
       const result = await runPrReview(workspaceRoot, {
         pr: opts.pr,
         issue: opts.issue ?? inferIssueRefForCurrentBranch(workspaceRoot, invocationCwd) ?? undefined,
@@ -2105,7 +2084,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
       const result = await runPrMerge(workspaceRoot, {
         pr: resolvedPr,
         issue: resolvedIssue,
-        confirm: opts.confirm,
+        confirm: opts.confirm || opts.resumeChangelog === true,
         confirmStatus: opts.confirmStatus,
         confirmChangelog: opts.confirmChangelog,
         resumeChangelog: opts.resumeChangelog,

@@ -4759,7 +4759,7 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
   let readiness = buildMergeReadiness(pr, reviewThreads, {
     allowUnresolvedReviewThreads: options.allowUnresolvedReviewThreads,
   });
-  if (options.resumeChangelog && pr.state === 'MERGED') {
+  if (pr.state === 'MERGED') {
     readiness = { ...readiness, blocked: [], details: [] };
   }
   const targetBase = pr.baseRefName ?? loadRepoManifest(workspaceRoot).defaults.default_branch;

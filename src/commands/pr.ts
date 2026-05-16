@@ -3978,7 +3978,7 @@ function buildFinalVictoryComment(
   mergePostMerge: MergePostMergeResult,
   mergeChangelog: MergeChangelogResult
 ) {
-  return [
+  const lines = [
     '## War Room victory update',
     '',
     `PR merged: ${pr.url ?? `https://github.com/${prRef.replace('#', '/pull/')}`}`,
@@ -3989,16 +3989,63 @@ function buildFinalVictoryComment(
     '',
     'Final checks:',
     `- Merge gate: passed`,
-    `- Demo e2e: ${mergeE2E.status}${mergeE2E.skipReason ? ` (${mergeE2E.skipReason})` : ''}`,
+    `- Demo e2e: ${formatFinalE2ECheck(mergeE2E)}`,
     `- Version bump: ${mergeBump.status}${mergeBump.skipReason ? ` (${mergeBump.skipReason})` : ''}`,
     `- Post-merge script: ${mergePostMerge.status}${mergePostMerge.skipReason ? ` (${mergePostMerge.skipReason})` : ''}`,
     `- Changelog: ${formatFinalChangelogCheck(mergeChangelog)}`,
-  ].join('\n');
+  ];
+
+  const releaseNote = readFinalReleaseNote(mergeChangelog);
+  if (releaseNote) {
+    lines.push(
+      '',
+      `## ${releaseNote.title ?? 'Public changelog'}`,
+      '',
+      releaseNote.body
+    );
+    if (mergeChangelog.changelogUrl) {
+      lines.push('', `[Read the full changelog](${mergeChangelog.changelogUrl})`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 export function formatFinalChangelogCheck(mergeChangelog: MergeChangelogResult) {
   const status = `${mergeChangelog.status}${mergeChangelog.skipReason ? ` (${mergeChangelog.skipReason})` : ''}`;
   return mergeChangelog.changelogUrl ? `${status} ([public changelog](${mergeChangelog.changelogUrl}))` : status;
+}
+
+export function formatFinalE2ECheck(mergeE2E: MergeE2EResult) {
+  let line = `${mergeE2E.status}${mergeE2E.skipReason ? ` (${mergeE2E.skipReason})` : ''}`;
+  const extras: string[] = [];
+  if (mergeE2E.durationMs !== null) {
+    const seconds = Math.max(1, Math.round(mergeE2E.durationMs / 1000));
+    extras.push(`${seconds}s`);
+  }
+  if (mergeE2E.testExitStatus !== null && mergeE2E.testExitStatus !== 0) {
+    extras.push(`exit ${mergeE2E.testExitStatus}`);
+  }
+  if (extras.length > 0) line += ` — ${extras.join(', ')}`;
+  return line;
+}
+
+function readFinalReleaseNote(mergeChangelog: MergeChangelogResult): { title: string | null; body: string } | null {
+  if (mergeChangelog.changelogFormat !== 'openchangelog') return null;
+  if (mergeChangelog.status !== 'passed') return null;
+  if (!mergeChangelog.path || !mergeChangelog.changelogFile) return null;
+  const filePath = path.join(mergeChangelog.path, mergeChangelog.changelogFile);
+  if (!existsSync(filePath)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+  const title = markdownFrontmatterTitle(raw);
+  const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n*/, '').trim();
+  if (!body) return null;
+  return { title, body };
 }
 
 function buildFinalIssueCommentPlan(

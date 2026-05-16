@@ -198,13 +198,8 @@ async function promptPrReviewSelection(output: Output, input: Input, prs: PrRevi
   if (prs.length === 1) {
     const pr = prs[0];
     if (!pr) return null;
-    return (await promptConfirmation(
-      output,
-      input,
-      `Start PR review handoff for ${prReviewRef(pr)} now? This will run \`warroom pr review --pr ${prReviewRef(pr)} --launch\`. [y/N]`
-    ))
-      ? pr
-      : null;
+    output(`Starting PR review handoff for ${prReviewRef(pr)}...`);
+    return pr;
   }
 
   output('Select a PR number to review, or enter 0 to cancel.');
@@ -238,13 +233,13 @@ async function promptConfirmation(output: Output, input: Input, question: string
   try {
     for await (const line of readline) {
       const answer = line.trim().toLowerCase();
-      return answer === 'y' || answer === 'yes';
+      return answer === '' || answer === 'y' || answer === 'yes';
     }
   } finally {
     readline.close();
   }
 
-  return false;
+  return true;
 }
 
 async function promptText(output: Output, input: Input, question: string): Promise<string> {
@@ -269,16 +264,16 @@ async function promptMergeConfirmation(output: Output, input: Input, question: s
   try {
     for await (const line of readline) {
       const answer = line.trim().toLowerCase();
-      if (answer === 'y' || answer === 'yes') return 'confirm';
+      if (!answer || answer === 'y' || answer === 'yes') return 'confirm';
       if (answer === 's' || answer === 'skip') return 'skip';
-      if (!answer || answer === 'n' || answer === 'no') return 'cancel';
+      if (answer === 'n' || answer === 'no') return 'cancel';
       output('Enter y to run the gate, skip to merge without Playwright, or n to cancel.');
     }
   } finally {
     readline.close();
   }
 
-  return 'cancel';
+  return 'confirm';
 }
 
 async function promptBlockedMergeConfirmation(output: Output, input: Input, question: string): Promise<'confirm' | 'skip' | 'cancel'> {
@@ -288,16 +283,16 @@ async function promptBlockedMergeConfirmation(output: Output, input: Input, ques
   try {
     for await (const line of readline) {
       const answer = line.trim().toLowerCase();
-      if (answer === 'y' || answer === 'yes') return 'confirm';
+      if (!answer || answer === 'y' || answer === 'yes') return 'confirm';
       if (answer === 's' || answer === 'skip') return 'skip';
-      if (!answer || answer === 'n' || answer === 'no') return 'cancel';
+      if (answer === 'n' || answer === 'no') return 'cancel';
       output('Enter y to recheck blockers, skip to allow unresolved review threads, or n to cancel.');
     }
   } finally {
     readline.close();
   }
 
-  return 'cancel';
+  return 'confirm';
 }
 
 async function promptMergeChangelogConfirmation(output: Output, input: Input, plan: MergeChangelogResult) {
@@ -305,7 +300,7 @@ async function promptMergeChangelogConfirmation(output: Output, input: Input, pl
     plan.changelogFormat === 'openchangelog'
       ? `create one public OpenChangelog release note under ${plan.changelogPath ?? 'the configured release-notes folder'}`
       : `update ${plan.changelogPath ?? 'the configured changelog file'}`;
-  return promptConfirmation(output, input, `Run the public changelog update now (${target})? [y/N]`);
+  return promptConfirmation(output, input, `Run the public changelog update now (${target})? [Y/n]`);
 }
 
 function parseVersionBumpChoice(value: string | undefined): VersionBumpChoice | undefined {
@@ -799,7 +794,7 @@ async function promptPrMergeFollowUps(
   }
 ) {
   if (!options.confirmSummary) {
-    const postSummary = await promptConfirmation(output, input, 'Post victory summary comments now? [y/N]');
+    const postSummary = await promptConfirmation(output, input, 'Post victory summary comments now? [Y/n]');
     if (postSummary) {
       const summaryResult = await runPrMerge(workspaceRoot, {
         pr: options.pr,
@@ -813,7 +808,7 @@ async function promptPrMergeFollowUps(
   }
 
   if (!options.confirmCleanup) {
-    const cleanup = await promptConfirmation(output, input, 'Return the local checkout to the PR base branch now? [y/N]');
+    const cleanup = await promptConfirmation(output, input, 'Return the local checkout to the PR base branch now? [Y/n]');
     if (cleanup) {
       const cleanupResult = await runPrMerge(workspaceRoot, {
         pr: options.pr,
@@ -884,14 +879,14 @@ async function runInteractivePrMergeFlow(
       mergeChoice = await promptBlockedMergeConfirmation(
         output,
         input,
-        'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [y/N/skip]'
+        'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [Y/n/skip]'
       );
       allowUnresolvedReviewThreads = mergeChoice === 'skip';
     } else {
       mergeChoice = await promptMergeConfirmation(
         output,
         input,
-        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [y/N/skip]'
+        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [Y/n/skip]'
       );
       skipMergeE2E = mergeChoice === 'skip';
     }
@@ -992,7 +987,7 @@ async function promptPrCreateAfterCommit(
     return;
   }
 
-  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [y/N]');
+  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
   if (!createPr) return;
 
   output('Creating PR...');
@@ -1114,7 +1109,7 @@ async function promptPrCreateAfterIssueStart(
     const commitNow = await promptConfirmation(
       output,
       input,
-      `Run \`warroom commit create --issue ${result.issue ?? '<issue>'}\` now? This will stage all current changes before committing. [y/N]`
+      `Run \`warroom commit create --issue ${result.issue ?? '<issue>'}\` now? This will stage all current changes before committing. [Y/n]`
     );
     if (!commitNow) return;
 
@@ -1144,7 +1139,7 @@ async function promptPrCreateAfterIssueStart(
     return;
   }
 
-  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [y/N]');
+  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
   if (!createPr) return;
 
   output('Creating PR...');
@@ -1183,7 +1178,7 @@ async function promptIssueNextAfterTriage(
 ) {
   if (!triageReadyForIssueNext(result)) return;
 
-  const startIssue = await promptConfirmation(output, input, `Run \`warroom issue next --issue ${issue}\` now? [y/N]`);
+  const startIssue = await promptConfirmation(output, input, `Run \`warroom issue next --issue ${issue}\` now? [Y/n]`);
   if (!startIssue) return;
 
   output(`Starting ${issue}`);
@@ -1210,7 +1205,7 @@ async function promptPrReviewForRef(
   issue: string | null | undefined,
   options: { writeArtifact?: boolean; liveMergeOutput?: PrMergeLiveOutput }
 ) {
-  const reviewPr = await promptConfirmation(output, input, 'Run `warroom pr review` next? [y/N]');
+  const reviewPr = await promptConfirmation(output, input, 'Run `warroom pr review` next? [Y/n]');
   if (!reviewPr) return;
 
   output(`Starting PR review for ${prRef}`);
@@ -1254,7 +1249,7 @@ async function promptPrMergeAfterPrReview(
 ) {
   if (result.action !== 'review' || result.launchError || !result.prReviewLoop?.completed) return;
 
-  const mergePr = await promptConfirmation(output, input, `Run \`warroom pr merge --pr ${options.pr}\` now? [y/N]`);
+  const mergePr = await promptConfirmation(output, input, `Run \`warroom pr merge --pr ${options.pr}\` now? [Y/n]`);
   if (!mergePr) return;
 
   output(`Starting PR merge for ${options.pr}`);
@@ -1279,7 +1274,7 @@ async function promptIssueTriageAfterCreate(
 ) {
   if (!result.created || !result.issue) return;
 
-  const triage = await promptConfirmation(output, input, `Run \`warroom issue triage --issue ${result.issue}\` now? [y/N]`);
+  const triage = await promptConfirmation(output, input, `Run \`warroom issue triage --issue ${result.issue}\` now? [Y/n]`);
   if (!triage) return;
 
   output(`Triaging ${result.issue}`);
@@ -1660,7 +1655,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         }
         if (!interactive || opts.confirm || opts.dryRun || !result.draft || result.draftError) return;
 
-        const confirmed = await promptConfirmation(output, input, 'Create this GitHub issue now? [y/N]');
+        const confirmed = await promptConfirmation(output, input, 'Create this GitHub issue now? [Y/n]');
         if (!confirmed) {
           output('Issue not created.');
           printOutcome(output, 'Outcome: issue not created. Draft remains available for review.');
@@ -1912,7 +1907,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
 
       if (opts.confirm || !interactive || result.blocked.length > 0) return;
 
-      const confirmed = await promptConfirmation(output, input, 'Push this branch and create the GitHub PR now? [y/N]');
+      const confirmed = await promptConfirmation(output, input, 'Push this branch and create the GitHub PR now? [Y/n]');
       if (!confirmed) {
         output('PR not created.');
         return;
@@ -2144,14 +2139,14 @@ export function buildProgram(options: BuildProgramOptions = {}) {
           mergeChoice = await promptBlockedMergeConfirmation(
             output,
             input,
-            'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [y/N/skip]'
+            'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [Y/n/skip]'
           );
           allowUnresolvedReviewThreads = mergeChoice === 'skip';
         } else {
           mergeChoice = await promptMergeConfirmation(
             output,
             input,
-            'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [y/N/skip]'
+            'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [Y/n/skip]'
           );
           skipMergeE2E = mergeChoice === 'skip';
         }
@@ -2239,11 +2234,11 @@ export function buildProgram(options: BuildProgramOptions = {}) {
       const willPush = opts.push !== false;
       const question = commitAll
         ? willPush
-          ? 'Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [y/N]'
-          : 'Commit all listed changes now? This will run git add -A before committing. [y/N]'
+          ? 'Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [Y/n]'
+          : 'Commit all listed changes now? This will run git add -A before committing. [Y/n]'
         : willPush
-          ? 'Commit staged changes and push to the remote branch now? [y/N]'
-          : 'Commit staged changes now? [y/N]';
+          ? 'Commit staged changes and push to the remote branch now? [Y/n]'
+          : 'Commit staged changes now? [Y/n]';
       const confirmed = await promptConfirmation(output, input, question);
       if (!confirmed) {
         output('Commit cancelled.');
@@ -2397,7 +2392,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
       let currentFallbackText = result.fallbackText!;
 
       while (true) {
-        const wantsEdits = await promptConfirmation(output, input, 'Draft sent to Slack. Would you like to make edits? [y/N]');
+        const wantsEdits = await promptConfirmation(output, input, 'Draft sent to Slack. Would you like to make edits? [Y/n]');
         if (!wantsEdits) break;
 
         const feedbackText = await promptText(output, input, 'Describe the changes you\'d like (e.g. "shorter intro", "more casual tone"):');
@@ -2430,7 +2425,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         output('Revised draft posted to #changelog-review.');
       }
 
-      const finalConfirm = await promptConfirmation(output, input, 'Are you sure you\'re ready to share this changelog with your allies? [y/N]');
+      const finalConfirm = await promptConfirmation(output, input, 'Are you sure you\'re ready to share this changelog with your allies? [Y/n]');
       if (!finalConfirm) {
         printOutcome(output, 'Outcome: draft posted to #changelog-review. Ally distribution cancelled at final confirmation.');
         return;

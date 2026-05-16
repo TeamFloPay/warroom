@@ -309,7 +309,7 @@ describe('phase-1 CLI', () => {
       expect(lines.some((line) => line.includes('War Room should have checked this checkout out to warroom/7-build-the-selector'))).toBe(true);
       expect(lines.some((line) => line.includes('Triage complete: build the feature directly.'))).toBe(true);
       expect(lines).toContain('Outcome: LLM adapter completed on warroom/7-build-the-selector; no background session remains. Campaign status updated to battlefield-active.');
-      expect(lines.at(-1)).toBe('Run `warroom pr create` next? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr create` next? [Y/n]');
 
       const branch = spawnSync('git', ['branch', '--show-current'], {
         cwd: path.resolve(root, '..', 'sdk'),
@@ -369,7 +369,7 @@ describe('phase-1 CLI', () => {
       }
 
       expect(lines).toContain('Issue start: launched');
-      expect(lines).toContain('Run `warroom pr create` next? [y/N]');
+      expect(lines).toContain('Run `warroom pr create` next? [Y/n]');
       expect(lines).toContain('Creating PR...');
       expect(lines).toContain('PR create: created');
       expect(lines).toContain('Repo: TeamFloPay/sdk');
@@ -383,7 +383,7 @@ describe('phase-1 CLI', () => {
       expect(output).toContain('- Captures the actual change in selector.ts for reviewers.');
       expect(lines).toContain('Issue progress: posted TeamFloPay/sdk#7 https://github.com/TeamFloPay/sdk/issues/7#issuecomment-2');
       expect(lines).toContain('PR URL: https://github.com/TeamFloPay/sdk/pull/12');
-      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [Y/n]');
 
       const remoteBranch = spawnSync(
         'git',
@@ -429,8 +429,8 @@ describe('phase-1 CLI', () => {
 
       expect(lines).toContain('Issue start: launched');
       expect(lines).toContain(`PR create is not ready: 1 uncommitted change remains in ${sdk}.`);
-      expect(lines).toContain('Run `warroom commit create --issue TeamFloPay/sdk#7` now? This will stage all current changes before committing. [y/N]');
-      expect(lines).not.toContain('Run `warroom pr create` next? [y/N]');
+      expect(lines).toContain('Run `warroom commit create --issue TeamFloPay/sdk#7` now? This will stage all current changes before committing. [Y/n]');
+      expect(lines).not.toContain('Run `warroom pr create` next? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -483,7 +483,7 @@ describe('phase-1 CLI', () => {
       expect(lines.some((line) => line.includes('Backend Sergeant'))).toBe(true);
       expect(lines.some((line) => line.includes('Closes TeamFloPay/ally-clicktech#6'))).toBe(true);
       expect(lines).toContain('Outcome: LLM adapter completed on warroom/6-omni-duplicate-paid-out-of-band-subscription-pay; no background session remains. Campaign status updated to battlefield-active.');
-      expect(lines).toContain('Run `warroom pr create` next? [y/N]');
+      expect(lines).toContain('Run `warroom pr create` next? [Y/n]');
 
       const branch = spawnSync('git', ['branch', '--show-current'], {
         cwd: backend,
@@ -596,18 +596,18 @@ describe('phase-1 CLI', () => {
       expect(lines).toContain('Issue type: Bug');
       expect(lines).toContain('Labels: needs-triage');
       expect(lines).toContain('Draft warning: Ignored label "checkout" because it does not exist in TeamFloPay/sdk.');
-      expect(lines).toContain('Create this GitHub issue now? [y/N]');
+      expect(lines).toContain('Create this GitHub issue now? [Y/n]');
       expect(lines).toContain('Issue create: created');
       expect(lines).toContain('URL: https://github.com/TeamFloPay/sdk/issues/123');
       expect(lines).toContain('Issue type: updated TeamFloPay/sdk#123 -> Bug');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#123 -> needs-triage');
       expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#123 +needs-triage');
       expect(lines).toContain('Outcome: issue created with follow-up warnings. draft warning: Ignored label "checkout" because it does not exist in TeamFloPay/sdk.');
-      expect(lines).toContain('Run `warroom issue triage --issue TeamFloPay/sdk#123` now? [y/N]');
+      expect(lines).toContain('Run `warroom issue triage --issue TeamFloPay/sdk#123` now? [Y/n]');
       expect(lines).toContain('Triaging TeamFloPay/sdk#123');
       expect(lines).toContain('Triage notes: ready https://github.com/TeamFloPay/sdk/issues/123#issuecomment-triage');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#123 -> ready-to-engage');
-      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/sdk#123` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/sdk#123` now? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -686,7 +686,7 @@ describe('phase-1 CLI', () => {
       expect(lines).toContain('Triage notes: ready https://github.com/TeamFloPay/sdk/issues/4#issuecomment-triage');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#4 -> ready-to-engage');
       expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#4 +ready-to-engage; removed needs-triage');
-      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/sdk#4` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/sdk#4` now? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -721,18 +721,18 @@ describe('phase-1 CLI', () => {
       }
 
       expect(lines).not.toContain(
-        'Start issue triage handoff for TeamFloPay/sdk#4 now? This will run `warroom issue triage --issue TeamFloPay/sdk#4 --launch --mark-ready --confirm-status`. [y/N]'
+        'Start issue triage handoff for TeamFloPay/sdk#4 now? This will run `warroom issue triage --issue TeamFloPay/sdk#4 --launch --mark-ready --confirm-status`. [Y/n]'
       );
       expect(lines).not.toContain('Outcome: dry run only; no LLM handoff was launched.');
       expect(lines).toContain('Triaging TeamFloPay/sdk#4');
       expect(lines.some((line) => line.includes('Adapter: codex --model gpt-5.5 ') && line.endsWith(' <prompt> (launched)'))).toBe(true);
       expect(lines).toContain('Triage notes: ready https://github.com/TeamFloPay/sdk/issues/4#issuecomment-triage');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#4 -> ready-to-engage');
-      expect(lines).toContain('Run `warroom issue next --issue TeamFloPay/sdk#4` now? [y/N]');
+      expect(lines).toContain('Run `warroom issue next --issue TeamFloPay/sdk#4` now? [Y/n]');
       expect(lines).toContain('Starting TeamFloPay/sdk#4');
       expect(lines).toContain('Issue start: launched');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#4 -> battlefield-active');
-      expect(lines.at(-1)).toBe('Run `warroom pr create` next? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr create` next? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -847,7 +847,7 @@ describe('phase-1 CLI', () => {
         lines,
         'Outcome: interactive issue triage session completed. Campaign status updated to ready-to-engage.'
       );
-      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/ally-clicktech#5` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom issue next --issue TeamFloPay/ally-clicktech#5` now? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -1220,13 +1220,13 @@ describe('phase-1 CLI', () => {
 
       expect(lines).toContain('PR create: preflight only');
       expect(lines).toContain('Outcome: PR not created. This was a preflight; run `warroom pr create --confirm` or answer yes in an interactive terminal to push and create the PR.');
-      expect(lines).toContain('Push this branch and create the GitHub PR now? [y/N]');
+      expect(lines).toContain('Push this branch and create the GitHub PR now? [Y/n]');
       expect(lines).toContain('Creating PR...');
       expect(lines).toContain('PR create: created');
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#7 -> skirmish');
       expect(lines).toContain('Issue progress: posted TeamFloPay/sdk#7 https://github.com/TeamFloPay/sdk/issues/7#issuecomment-2');
       expect(lines).toContain('PR URL: https://github.com/TeamFloPay/sdk/pull/12');
-      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [Y/n]');
 
       const remoteBranch = spawnSync(
         'git',
@@ -1280,7 +1280,7 @@ describe('phase-1 CLI', () => {
       }
 
       expect(lines).toContain('PR create: created');
-      expect(lines).toContain('Run `warroom pr review` next? [y/N]');
+      expect(lines).toContain('Run `warroom pr review` next? [Y/n]');
       expect(lines).toContain('Starting PR review for TeamFloPay/sdk#12');
       expect(lines.some((line) => line.startsWith('PR review loop: waiting for CodeRabbit feedback on the initial PR commit'))).toBe(true);
       expect(lines).toContain('PR review loop: no outstanding CodeRabbit feedback remains on the initial PR commit.');
@@ -1288,7 +1288,7 @@ describe('phase-1 CLI', () => {
       expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#7 -> skirmish');
       expect(lines).toContain('Issue labels: updated TeamFloPay/sdk#7 +skirmish; removed battlefield-active');
       expectBoxedOutcome(lines, 'Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
-      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [Y/n]');
       expect(Number(readFileSync(`${stateFile}.polls`, 'utf8'))).toBeGreaterThanOrEqual(4);
     } finally {
       restorePrReviewEnv();
@@ -1404,7 +1404,7 @@ describe('phase-1 CLI', () => {
       expect(lines.some((line) => line.includes('Do not stop before code changes only because the reaction could not be added.'))).toBe(true);
       expect(lines).toContain('PR review loop iterations: 2');
       expectBoxedOutcome(lines, 'Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
-      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [Y/n]');
     } finally {
       restorePrReviewEnv();
       process.env.PATH = originalPath;
@@ -1506,12 +1506,12 @@ describe('phase-1 CLI', () => {
       }
 
       expectBoxedOutcome(lines, 'Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
-      expect(lines).toContain('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [y/N]');
+      expect(lines).toContain('Run `warroom pr merge --pr TeamFloPay/sdk#12` now? [Y/n]');
       expect(lines).toContain('Starting PR merge for TeamFloPay/sdk#12');
       expect(lines).toContain('PR merge: preflight only');
       expect(lines).toContain('Merge readiness: clear');
       expect(lines).toContain(
-        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [y/N/skip]'
+        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [Y/n/skip]'
       );
     } finally {
       restorePrReviewEnv();
@@ -1651,7 +1651,7 @@ describe('phase-1 CLI', () => {
     }
   });
 
-  it('confirms a single detected PR review queue item before launching', async () => {
+  it('auto-launches the PR review handoff when only one queue item is detected', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');
     const stateFile = path.join(root, 'review-state.txt');
@@ -1668,7 +1668,7 @@ describe('phase-1 CLI', () => {
       const input = new PassThrough();
       const program = buildProgram({ cwd: root, output: (line) => lines.push(line), input, interactive: true });
 
-      const answers = ['y\n', 'no\n'];
+      const answers = ['no\n'];
       const promptAnswers = setInterval(() => {
         const answer = answers.shift();
         if (answer) input.write(answer);
@@ -1683,9 +1683,7 @@ describe('phase-1 CLI', () => {
 
       expect(lines[0]).toBe('Open PRs for Campaign statuses battlefield-active, skirmish: 1');
       expect(lines[1]).toContain('TeamFloPay/backend#657 Remove Recurly & Chargebee Support');
-      expect(lines).toContain(
-        'Start PR review handoff for TeamFloPay/backend#657 now? This will run `warroom pr review --pr TeamFloPay/backend#657 --launch`. [y/N]'
-      );
+      expect(lines).toContain('Starting PR review handoff for TeamFloPay/backend#657...');
       expect(lines).toContain('Starting PR review for TeamFloPay/backend#657');
       expect(lines).toContain('PR review: launched');
       expect(lines).toContain('Campaign status: updated TeamFloPay/backend#632 -> skirmish');
@@ -1693,7 +1691,7 @@ describe('phase-1 CLI', () => {
       expect(lines).toContain('PR review loop 1: no outstanding CodeRabbit feedback remains.');
       expect(lines.some((line) => line.includes('PR https://github.com/TeamFloPay/backend/pull/657'))).toBe(true);
       expectBoxedOutcome(lines, 'Outcome: PR review loop complete; no outstanding CodeRabbit feedback remains.');
-      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/backend#657` now? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr merge --pr TeamFloPay/backend#657` now? [Y/n]');
     } finally {
       restorePrReviewEnv();
       process.env.PATH = originalPath;
@@ -2372,11 +2370,11 @@ exit 0
     }
 
     expect(lines).toContain('Commit create for sdk: preflight only');
-    expect(lines).toContain('Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [y/N]');
+    expect(lines).toContain('Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [Y/n]');
     expect(lines).toContain('Creating commit and pushing...');
     expect(lines).toContain('Commit create for sdk: committed');
     expect(lines).toContain('Push: pushed git push -u origin HEAD');
-    expect(lines).toContain('Run `warroom pr create` next? [y/N]');
+    expect(lines).toContain('Run `warroom pr create` next? [Y/n]');
 
     const log = spawnSync('git', ['log', '-1', '--pretty=%s'], { cwd: sdk, encoding: 'utf8' });
     expect(log.stdout.trim()).toBe('chore(sdk): save fixture');
@@ -2423,11 +2421,11 @@ exit 0
       }
 
       expect(lines).toContain('Commit create for sdk: committed');
-      expect(lines).toContain('Run `warroom pr create` next? [y/N]');
+      expect(lines).toContain('Run `warroom pr create` next? [Y/n]');
       expect(lines).toContain('Creating PR...');
       expect(lines).toContain('PR create: created');
       expect(lines).toContain('PR URL: https://github.com/TeamFloPay/sdk/pull/12');
-      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [y/N]');
+      expect(lines.at(-1)).toBe('Run `warroom pr review` next? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -2782,8 +2780,8 @@ exit 0
 
       expect(lines.some((line) => line.startsWith('Run the public changelog update now (update '))).toBe(true);
       expect(lines).toContain('Merge changelog: skipped (Skipped by user during interactive changelog confirmation.)');
-      expect(lines).toContain('Post victory summary comments now? [y/N]');
-      expect(lines).toContain('Return the local checkout to the PR base branch now? [y/N]');
+      expect(lines).toContain('Post victory summary comments now? [Y/n]');
+      expect(lines).toContain('Return the local checkout to the PR base branch now? [Y/n]');
 
       const remoteChangelog = spawnSync('git', ['--git-dir', sdkRemote, 'show', 'refs/heads/main:CHANGELOG.md'], {
         encoding: 'utf8',
@@ -3282,14 +3280,14 @@ exit 0
 
       expect(lines).toContain('PR merge: preflight only');
       expect(lines).toContain(
-        'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [y/N/skip]'
+        'Preflight is blocked. Recheck readiness and attempt the confirmed merge only if blockers are clear? Type "skip" to allow unresolved review threads if no other blockers remain. [Y/n/skip]'
       );
       expect(lines).toContain('Running confirmed PR merge while allowing unresolved review threads...');
       expect(lines).toContain('Merge readiness: clear');
       expect(lines).toContain('Merge e2e: skipped (repos.yaml has merge.playwright: false for TeamFloPay/infra.)');
       expect(lines).toContain('Merged: yes');
-      expect(lines).toContain('Post victory summary comments now? [y/N]');
-      expect(lines).toContain('Return the local checkout to the PR base branch now? [y/N]');
+      expect(lines).toContain('Post victory summary comments now? [Y/n]');
+      expect(lines).toContain('Return the local checkout to the PR base branch now? [Y/n]');
     } finally {
       process.env.PATH = originalPath;
     }
@@ -3346,14 +3344,14 @@ exit 0
 
       expect(lines).toContain('PR merge: preflight only');
       expect(lines).toContain(
-        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [y/N/skip]'
+        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [Y/n/skip]'
       );
       expect(lines).toContain('Running confirmed PR merge...');
       expect(lines).toContain('Merge e2e: passed');
       expect(lines).toContain('Backend process: reused existing');
       expect(lines).toContain('Merged: yes');
-      expect(lines).toContain('Post victory summary comments now? [y/N]');
-      expect(lines).toContain('Return the local checkout to the PR base branch now? [y/N]');
+      expect(lines).toContain('Post victory summary comments now? [Y/n]');
+      expect(lines).toContain('Return the local checkout to the PR base branch now? [Y/n]');
       expect(existsSync(path.join(root, 'backend-started.txt'))).toBe(false);
     } finally {
       await stopChild(existingBackend);
@@ -3395,7 +3393,7 @@ exit 0
 
       expect(lines).toContain('PR merge: preflight only');
       expect(lines).toContain(
-        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [y/N/skip]'
+        'Continue to run the demo Playwright e2e gate and merge this PR now? Type "skip" to merge without the Playwright gate. [Y/n/skip]'
       );
       expect(lines).toContain('Running confirmed PR merge without demo Playwright e2e...');
       expect(lines).toContain('Merge e2e: skipped (Skipped by user during interactive merge confirmation.)');
@@ -3465,10 +3463,10 @@ exit 0
 
       expect(lines).toContain('Resolved current branch PR: TeamFloPay/backend#655');
       expect(lines).toContain('Victory issue: posted TeamFloPay/backend#562 https://github.com/TeamFloPay/backend/issues/562#issuecomment-2');
-      expect(lines).toContain('Post victory summary comments now? [y/N]');
+      expect(lines).toContain('Post victory summary comments now? [Y/n]');
       expect(lines).toContain('Summary pr: posted TeamFloPay/backend#655 https://github.com/TeamFloPay/backend/pull/655#issuecomment-1');
       expect(lines).toContain('Summary issue: posted TeamFloPay/backend#562 https://github.com/TeamFloPay/backend/issues/562#issuecomment-2');
-      expect(lines).toContain('Return the local checkout to the PR base branch now? [y/N]');
+      expect(lines).toContain('Return the local checkout to the PR base branch now? [Y/n]');
       expect(lines).toContain('Local cleanup: applied TeamFloPay/backend');
       expect(lines).toContain('cleanup: Switched local checkout to main.');
       expect(lines).toContain('cleanup: Pulled latest main with git pull --ff-only.');

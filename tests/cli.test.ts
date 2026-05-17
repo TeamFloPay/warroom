@@ -2348,7 +2348,7 @@ exit 0
     }
   });
 
-  it('prompts for a full commit after the commit dry run in an interactive terminal', async () => {
+  it('auto-commits after the commit dry run in an interactive terminal', async () => {
     const { sdk, sdkRemote } = makeCommitFixture();
     writeFileSync(path.join(sdk, 'index.ts'), 'export const value = 1;\n');
 
@@ -2356,7 +2356,7 @@ exit 0
     const input = new PassThrough();
     const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line), input, interactive: true });
 
-    const answers = ['yes\n', 'no\n'];
+    const answers = ['no\n'];
     const promptAnswers = setInterval(() => {
       const answer = answers.shift();
       if (answer) input.write(answer);
@@ -2370,7 +2370,7 @@ exit 0
     }
 
     expect(lines).toContain('Commit create for sdk: preflight only');
-    expect(lines).toContain('Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [Y/n]');
+    expect(lines).not.toContain('Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [Y/n]');
     expect(lines).toContain('Creating commit and pushing...');
     expect(lines).toContain('Commit create for sdk: committed');
     expect(lines).toContain('Push: pushed git push -u origin HEAD');
@@ -2407,7 +2407,7 @@ exit 0
       const input = new PassThrough();
       const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line), input, interactive: true });
 
-      const answers = ['yes\n', 'yes\n', 'no\n'];
+      const answers = ['yes\n', 'no\n'];
       const promptAnswers = setInterval(() => {
         const answer = answers.shift();
         if (answer) input.write(answer);

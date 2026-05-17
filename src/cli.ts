@@ -2232,19 +2232,6 @@ export function buildProgram(options: BuildProgramOptions = {}) {
 
       const commitAll = opts.all === true || result.changes.some((change) => change.unstaged);
       const willPush = opts.push !== false;
-      const question = commitAll
-        ? willPush
-          ? 'Commit all listed changes and push to the remote branch now? This will run git add -A before committing. [Y/n]'
-          : 'Commit all listed changes now? This will run git add -A before committing. [Y/n]'
-        : willPush
-          ? 'Commit staged changes and push to the remote branch now? [Y/n]'
-          : 'Commit staged changes now? [Y/n]';
-      const confirmed = await promptConfirmation(output, input, question);
-      if (!confirmed) {
-        output('Commit cancelled.');
-        return;
-      }
-
       output(willPush ? 'Creating commit and pushing...' : 'Creating commit...');
       const committed = runCommitCreate(workspaceRoot, { ...commandOptions, confirm: true, all: commitAll });
       printCommitCreate(output, committed);

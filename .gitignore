@@ -25,6 +25,7 @@ allies/*/workspace/*
 # Child repositories are cloned locally and committed in their own repos.
 maps/repos/*
 !maps/repos/.gitkeep
+allies/*
 
 # Tool caches.
 .turbo/

@@ -212,7 +212,7 @@ function generateContent(
     '{"title":"...","intro":"...","signoff":"..."}',
     '',
     'Rules:',
-    `- title: max 8 words, no period, completes "FloPay ChangeLog ${periodLabel} — "`,
+    `- title: max 8 words, no period at the end, ideally including the name of a notable changes.`,
     '- intro: 2-3 sentences summarising the changes, written for a non-technical product audience',
     '- signoff: 1-2 natural-sounding sentences that close the message without sounding automated; vary the phrasing each run',
   ].join('\n');
@@ -261,7 +261,7 @@ export function buildSlackBlocks(content: ChangelogShareContent, entries: Change
   return [
     {
       type: 'header',
-      text: { type: 'plain_text', text: `FloPay ChangeLog ${periodLabel} — ${content.title}`, emoji: false },
+      text: { type: 'plain_text', text: `${content.title}`, emoji: false },
     },
     {
       type: 'section',
@@ -299,7 +299,7 @@ export function reviseChangelogContent(
     result.content ? { request: feedbackRequest, previous: result.content } : undefined
   );
   const blocks = content ? buildSlackBlocks(content, result.entries, result.periodLabel) : null;
-  const fallbackText = content ? `FloPay ChangeLog ${result.periodLabel} — ${content.title}` : null;
+  const fallbackText = content ? `${content.title}` : null;
   return { content, blocks, fallbackText, adapterError, adapterCommand };
 }
 
@@ -487,7 +487,7 @@ export function resumeChangelogShare(workspaceRoot: string, draft: ChangelogDraf
   }));
   const alliesWithComms = loadAlliesWithComms(workspaceRoot);
   const blocks = buildSlackBlocks(draft.content, entries, draft.periodLabel);
-  const fallbackText = `FloPay ChangeLog ${draft.periodLabel} — ${draft.content.title}`;
+  const fallbackText = draft.content.title;
   const cutoff = draft.cutoff ? new Date(draft.cutoff) : periodCutoff(draft.period);
   const cutoffSource: 'last-sent' | 'period-default' = draft.cutoffSource ?? 'period-default';
   return {
@@ -532,7 +532,7 @@ export function runChangelogShare(workspaceRoot: string, period: ChangelogPeriod
 
   const { content, adapterError, adapterCommand } = generateContent(workspaceRoot, entries, periodLabel);
   const blocks = content ? buildSlackBlocks(content, entries, periodLabel) : null;
-  const fallbackText = content ? `FloPay ChangeLog ${periodLabel} — ${content.title}` : null;
+  const fallbackText = content ? content.title : null;
 
   return {
     period,

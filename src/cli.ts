@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { runAbort, type AbortResult } from './commands/abort.js';
 import { runAlliesStatus, type AlliesStatus } from './commands/allies.js';
@@ -38,6 +38,7 @@ import {
   runPrMerge,
   runPrReview,
   runPrReviewQueue,
+  type ChangelogDecision,
   type LocalCleanupResult,
   type MergeBumpResult,
   type MergeChangelogResult,
@@ -292,12 +293,54 @@ async function promptBlockedMergeConfirmation(output: Output, input: Input, ques
   });
 }
 
-async function promptMergeChangelogConfirmation(output: Output, input: Input, plan: MergeChangelogResult) {
+async function promptMergeChangelogConfirmation(
+  output: Output,
+  input: Input,
+  plan: MergeChangelogResult
+): Promise<ChangelogDecision> {
   const target =
     plan.changelogFormat === 'openchangelog'
       ? `create one public OpenChangelog release note under ${plan.changelogPath ?? 'the configured release-notes folder'}`
       : `update ${plan.changelogPath ?? 'the configured changelog file'}`;
-  return promptConfirmation(output, input, `Run the public changelog update now (${target})? [Y/n]`);
+  const choice = await selectChoice<'create' | 'skip' | 'existing'>({
+    output,
+    input,
+    question: `Run the public changelog update now (${target})?`,
+    default: 'create',
+    choices: [
+      { label: 'Yes', value: 'create', aliases: ['y'] },
+      { label: 'No', value: 'skip', aliases: ['n'] },
+      { label: 'Use existing file', value: 'existing', aliases: ['e', 'existing', 'use existing', 'use existing file'] },
+    ],
+    retryHelp: 'Enter yes to generate a new changelog, no to skip, or "use existing file" to provide a path to a pre-written file.',
+  });
+
+  if (choice !== 'existing') return { kind: choice };
+
+  for (;;) {
+    const raw = await promptText(output, input, 'Paste the path to the existing changelog file (or leave blank to cancel):');
+    if (!raw) return { kind: 'skip' };
+    const absolutePath = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+    if (!existsSync(absolutePath)) {
+      output(`File not found: ${absolutePath}`);
+      continue;
+    }
+    if (!statSync(absolutePath).isFile()) {
+      output(`Not a file: ${absolutePath}`);
+      continue;
+    }
+    try {
+      const content = readFileSync(absolutePath, 'utf8');
+      if (!content.trim()) {
+        output(`File is empty: ${absolutePath}`);
+        continue;
+      }
+      return { kind: 'existing', filePath: absolutePath, content };
+    } catch (error) {
+      output(`Could not read ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+  }
 }
 
 async function promptMergeChangelogPushConfirmation(output: Output, input: Input, plan: MergeChangelogResult) {
@@ -1034,9 +1077,11 @@ async function promptPrCreateAfterCommit(
   workspaceRoot: string,
   output: Output,
   input: Input,
-  result: CommitCreateResult
+  result: CommitCreateResult,
+  options: { autoCreatePr?: boolean } = {}
 ) {
   if (!result.committed) return;
+  if (options.autoCreatePr === false) return;
 
   const existingPr = result.branch ? findOpenPrForBranch(result.githubRepo, result.branch) : null;
   if (existingPr) {
@@ -1045,7 +1090,10 @@ async function promptPrCreateAfterCommit(
     return;
   }
 
-  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
+  const createPr =
+    options.autoCreatePr === true
+      ? true
+      : await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
   if (!createPr) return;
 
   output('Creating PR...');
@@ -1153,9 +1201,11 @@ async function promptPrCreateAfterIssueStart(
   workspaceRoot: string,
   output: Output,
   input: Input,
-  result: PrPlanResult
+  result: PrPlanResult,
+  options: { autoCreatePr?: boolean } = {}
 ) {
   if (result.action !== 'issue-start' || !result.launched || result.launchError || !result.adapterCwd) return;
+  if (options.autoCreatePr === false) return;
 
   const readiness = issueStartPrReadiness(result);
   if (readiness?.dirty) {
@@ -1164,11 +1214,14 @@ async function promptPrCreateAfterIssueStart(
         readiness.dirtyCount === 1 ? '' : 's'
       } ${readiness.dirtyCount === 1 ? 'remains' : 'remain'} in ${readiness.repoPath}.`
     );
-    const commitNow = await promptConfirmation(
-      output,
-      input,
-      `Run \`warroom commit create --issue ${result.issue ?? '<issue>'}\` now? This will stage all current changes before committing. [Y/n]`
-    );
+    const commitNow =
+      options.autoCreatePr === true
+        ? true
+        : await promptConfirmation(
+            output,
+            input,
+            `Run \`warroom commit create --issue ${result.issue ?? '<issue>'}\` now? This will stage all current changes before committing. [Y/n]`
+          );
     if (!commitNow) return;
 
     output('Creating commit and pushing...');
@@ -1180,7 +1233,7 @@ async function promptPrCreateAfterIssueStart(
         all: true,
       });
       printCommitCreate(output, committed);
-      await promptPrCreateAfterCommit(workspaceRoot, output, input, committed);
+      await promptPrCreateAfterCommit(workspaceRoot, output, input, committed, { autoCreatePr: options.autoCreatePr });
     } catch (error) {
       output(`Commit create failed: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
@@ -1197,7 +1250,10 @@ async function promptPrCreateAfterIssueStart(
     return;
   }
 
-  const createPr = await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
+  const createPr =
+    options.autoCreatePr === true
+      ? true
+      : await promptConfirmation(output, input, 'Run `warroom pr create` next? [Y/n]');
   if (!createPr) return;
 
   output('Creating PR...');
@@ -1822,6 +1878,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--no-status', 'Do not move the selected issue to battlefield-active.')
     .option('--write-artifact', 'Write prompt/input artifacts under .warroom/runs.')
     .option('--no-select', 'List issues without prompting for a selection.')
+    .option('--no-pr-creation', 'Do not auto-create the PR after development. By default, the PR is created without prompting.')
     .option('--all', 'List ready issues across all mapped repos, even from inside a child repo checkout.')
     .option('--json', 'Print machine-readable output.')
     .action(
@@ -1835,9 +1892,11 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         status?: boolean;
         writeArtifact?: boolean;
         select?: boolean;
+        prCreation?: boolean;
         all?: boolean;
         json?: boolean;
       }) => {
+        const autoCreatePr = opts.prCreation !== false;
         if (opts.issue) {
           const dryRun = opts.dryRun === true;
           if (!opts.json) output(`Starting ${opts.issue}`);
@@ -1854,7 +1913,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
           }
           printPrPlan(output, plan);
           if (plan.launchError) process.exitCode = 1;
-          if (interactive) await promptPrCreateAfterIssueStart(workspaceRoot, output, input, plan);
+          if (interactive) await promptPrCreateAfterIssueStart(workspaceRoot, output, input, plan, { autoCreatePr });
           return;
         }
 
@@ -1901,7 +1960,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         });
         printPrPlan(output, plan);
         if (plan.launchError) process.exitCode = 1;
-        await promptPrCreateAfterIssueStart(workspaceRoot, output, input, plan);
+        await promptPrCreateAfterIssueStart(workspaceRoot, output, input, plan, { autoCreatePr });
       }
     );
 

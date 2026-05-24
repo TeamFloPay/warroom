@@ -42,6 +42,11 @@ export type PrTextResult = {
 export type VersionBumpLevel = 'patch' | 'minor' | 'major';
 export type VersionBumpChoice = VersionBumpLevel | 'skip';
 
+export type ChangelogDecision =
+  | { kind: 'create' }
+  | { kind: 'skip' }
+  | { kind: 'existing'; filePath: string; content: string };
+
 export type PrOptions = {
   issue?: string;
   pr?: string;
@@ -77,7 +82,7 @@ export type PrOptions = {
   e2eStatus?: (message: string) => void;
   e2eOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
   mergeStatus?: (message: string) => void;
-  changelogConfirmation?: (plan: MergeChangelogResult) => Promise<boolean>;
+  changelogConfirmation?: (plan: MergeChangelogResult) => Promise<ChangelogDecision>;
   changelogPushConfirmation?: (plan: MergeChangelogResult) => Promise<boolean>;
   bumpConfirmation?: (plan: MergeBumpResult) => Promise<VersionBumpChoice>;
   reviewStatus?: (message: string) => void;
@@ -426,11 +431,31 @@ function mergeChangelogSkipResult(plan: MergeChangelogResult, skipReason: string
   };
 }
 
-async function shouldRunMergeChangelog(options: PrOptions, plan: MergeChangelogResult) {
-  if (!plan.required) return false;
-  if (options.confirmChangelog) return true;
+async function changelogDecision(options: PrOptions, plan: MergeChangelogResult): Promise<ChangelogDecision> {
+  if (!plan.required) return { kind: 'skip' };
+  if (options.confirmChangelog) return { kind: 'create' };
   if (options.changelogConfirmation) return options.changelogConfirmation(plan);
-  return false;
+  return { kind: 'skip' };
+}
+
+function mergeChangelogExistingResult(
+  plan: MergeChangelogResult,
+  decision: Extract<ChangelogDecision, { kind: 'existing' }>
+): MergeChangelogResult {
+  const relative = plan.path ? path.relative(plan.path, decision.filePath) : decision.filePath;
+  const inRepo = Boolean(plan.path) && !relative.startsWith('..') && !path.isAbsolute(relative);
+  return {
+    ...plan,
+    status: 'skipped',
+    skipReason: `Used existing changelog file at ${decision.filePath}; not auto-committed or pushed.`,
+    durationMs: null,
+    committed: false,
+    pushed: false,
+    commitSha: null,
+    error: null,
+    changelogFile: inRepo ? relative : plan.changelogFile,
+    releaseNoteContent: decision.content,
+  };
 }
 
 function mergeBumpSkipResult(plan: MergeBumpResult, skipReason: string): MergeBumpResult {
@@ -3874,16 +3899,50 @@ function readOpenChangelogNotes(changelogPath: string) {
 }
 
 function markdownFrontmatterTitle(markdown: string) {
+  return readMarkdownFrontmatterField(markdown, 'title');
+}
+
+function readMarkdownFrontmatterField(markdown: string, field: string) {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
-  const titleLine = match[1]!
+  const prefix = `${field}:`;
+  const line = match[1]!
     .split(/\r?\n/)
-    .find((line) => line.trimStart().startsWith('title:'));
-  if (!titleLine) return null;
-  return titleLine
-    .slice(titleLine.indexOf(':') + 1)
+    .find((entry) => entry.trimStart().startsWith(prefix));
+  if (!line) return null;
+  return line
+    .slice(line.indexOf(':') + 1)
     .trim()
     .replace(/^["']|["']$/g, '');
+}
+
+function openChangelogReleaseUrl(baseUrl: string, publishedAtIso: string): string | null {
+  const publishedAt = new Date(publishedAtIso);
+  if (Number.isNaN(publishedAt.getTime())) return null;
+  return `${baseUrl.replace(/\/$/, '')}/release/${Math.floor(publishedAt.getTime() / 1000)}`;
+}
+
+function resolveChangelogReadMoreUrl(mergeChangelog: MergeChangelogResult): string | null {
+  if (!mergeChangelog.changelogUrl) return null;
+  if (mergeChangelog.changelogFormat === 'openchangelog') {
+    const raw = mergeChangelog.releaseNoteContent ?? readReleaseNoteFromDisk(mergeChangelog);
+    const publishedAt = raw ? readMarkdownFrontmatterField(raw, 'publishedAt') : null;
+    if (publishedAt) {
+      const entryUrl = openChangelogReleaseUrl(mergeChangelog.changelogUrl, publishedAt);
+      if (entryUrl) return entryUrl;
+    }
+  }
+  return mergeChangelog.changelogUrl;
+}
+
+function readReleaseNoteFromDisk(mergeChangelog: MergeChangelogResult): string | null {
+  const filePath = resolveReleaseNoteFilePath(mergeChangelog);
+  if (!filePath || !existsSync(filePath)) return null;
+  try {
+    return readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 function publicChangelogGuardrails() {
@@ -4411,9 +4470,21 @@ async function runMergeChangelog(
       throw new Error(`LLM adapter completed but did not modify ${changelogRelativePath}.`);
     }
     const expectedFiles = new Set([changelogFile]);
-    const unexpected = changed.filter((file) => !expectedFiles.has(file));
-    if (unexpected.length > 0) {
-      throw new Error(`LLM adapter modified files outside the changelog target: ${unexpected.join(', ')}.`);
+    const unexpectedEntries = statusEntries.filter((entry) => !expectedFiles.has(entry.path));
+    if (unexpectedEntries.length > 0) {
+      options.mergeStatus?.(
+        `Changelog: LLM modified ${unexpectedEntries.length} file(s) outside the changelog target; reverting and continuing with ${changelogFile} only: ${unexpectedEntries.map((entry) => entry.path).join(', ')}`
+      );
+      for (const entry of unexpectedEntries) {
+        if (entry.status === '??') {
+          rmSync(path.join(plan.path, entry.path), { force: true, recursive: true });
+          continue;
+        }
+        const restore = runGit(plan.path, ['checkout', 'HEAD', '--', entry.path]);
+        if (restore.status !== 0) {
+          throw new Error(restore.stderr || `git checkout HEAD -- ${entry.path} failed with exit ${restore.status ?? 'unknown'}.`);
+        }
+      }
     }
 
     const add = runGit(plan.path, ['add', changelogFile]);
@@ -4518,11 +4589,12 @@ function buildVictorySummary(
   if (issueRef) lines.push(`Linked issue: ${issueRef}`);
   if (operatorSummary) lines.push('', operatorSummary);
 
+  const readMoreUrl = mergeChangelog ? resolveChangelogReadMoreUrl(mergeChangelog) : null;
   if (releaseNote) {
     lines.push('', '## Public changelog', '', releaseNote.body);
-    if (mergeChangelog?.changelogUrl) lines.push('', `[Read the full changelog](${mergeChangelog.changelogUrl})`);
-  } else if (mergeChangelog?.changelogUrl && (mergeChangelog.status === 'passed' || mergeChangelog.pushed)) {
-    lines.push('', `[Read the full changelog](${mergeChangelog.changelogUrl})`);
+    if (readMoreUrl) lines.push('', `[Read the full changelog](${readMoreUrl})`);
+  } else if (readMoreUrl && mergeChangelog && (mergeChangelog.status === 'passed' || mergeChangelog.pushed)) {
+    lines.push('', `[Read the full changelog](${readMoreUrl})`);
   }
 
   return lines.join('\n');
@@ -4619,8 +4691,9 @@ function buildFinalVictoryComment(
       '',
       releaseNote.body
     );
-    if (mergeChangelog.changelogUrl) {
-      lines.push('', `[Read the full changelog](${mergeChangelog.changelogUrl})`);
+    const readMoreUrl = resolveChangelogReadMoreUrl(mergeChangelog);
+    if (readMoreUrl) {
+      lines.push('', `[Read the full changelog](${readMoreUrl})`);
     }
   }
 
@@ -4629,7 +4702,8 @@ function buildFinalVictoryComment(
 
 export function formatFinalChangelogCheck(mergeChangelog: MergeChangelogResult) {
   const status = `${mergeChangelog.status}${mergeChangelog.skipReason ? ` (${mergeChangelog.skipReason})` : ''}`;
-  return mergeChangelog.changelogUrl ? `${status} ([public changelog](${mergeChangelog.changelogUrl}))` : status;
+  const readMoreUrl = resolveChangelogReadMoreUrl(mergeChangelog);
+  return readMoreUrl ? `${status} ([public changelog](${readMoreUrl}))` : status;
 }
 
 export function formatFinalE2ECheck(mergeE2E: MergeE2EResult) {
@@ -5827,15 +5901,19 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
         throw new Error(`--resume-changelog requires an already merged PR; ${options.pr} is ${pr.state ?? 'unknown'}.`);
       }
       if (mergeChangelog.required) {
-        const confirmedChangelog = await shouldRunMergeChangelog(resolvedOptions, mergeChangelog);
-        mergeChangelog = confirmedChangelog
-          ? await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId })
-          : mergeChangelogSkipResult(
-              mergeChangelog,
-              resolvedOptions.changelogConfirmation
-                ? 'Skipped by user during interactive changelog confirmation.'
-                : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
-            );
+        const decision = await changelogDecision(resolvedOptions, mergeChangelog);
+        if (decision.kind === 'create') {
+          mergeChangelog = await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId });
+        } else if (decision.kind === 'existing') {
+          mergeChangelog = mergeChangelogExistingResult(mergeChangelog, decision);
+        } else {
+          mergeChangelog = mergeChangelogSkipResult(
+            mergeChangelog,
+            resolvedOptions.changelogConfirmation
+              ? 'Skipped by user during interactive changelog confirmation.'
+              : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
+          );
+        }
       }
     } else {
       mergeE2E = await runMergeE2E(workspaceRoot, mergePlaywright, options);
@@ -5878,15 +5956,19 @@ export async function runPrMerge(workspaceRoot: string, options: PrOptions): Pro
           mergePostMerge = await runMergePostMerge(mergePostMerge, resolvedOptions);
         }
         if (mergeChangelog.required) {
-          const confirmedChangelog = await shouldRunMergeChangelog(resolvedOptions, mergeChangelog);
-          mergeChangelog = confirmedChangelog
-            ? await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId })
-            : mergeChangelogSkipResult(
-                mergeChangelog,
-                resolvedOptions.changelogConfirmation
-                  ? 'Skipped by user during interactive changelog confirmation.'
-                  : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
-              );
+          const decision = await changelogDecision(resolvedOptions, mergeChangelog);
+          if (decision.kind === 'create') {
+            mergeChangelog = await runMergeChangelog(workspaceRoot, mergeChangelog, resolvedOptions, pr, { commandRunId });
+          } else if (decision.kind === 'existing') {
+            mergeChangelog = mergeChangelogExistingResult(mergeChangelog, decision);
+          } else {
+            mergeChangelog = mergeChangelogSkipResult(
+              mergeChangelog,
+              resolvedOptions.changelogConfirmation
+                ? 'Skipped by user during interactive changelog confirmation.'
+                : 'Pass --confirm-changelog or answer yes in an interactive terminal to run the changelog update.'
+            );
+          }
         }
       }
     }

@@ -199,7 +199,9 @@ repos:
     status: active
     merge:
       playwright: false
-      bump: false
+      bump: 
+        enabled: true
+        command: pnpm bump:version
       changelog: false
     owner: app-landing
     description: Standalone marketing site after extraction from sdk/apps/landing.

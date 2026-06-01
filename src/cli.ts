@@ -22,6 +22,7 @@ import {
 import { runCampaignStatus, runCampaignStatusCheck } from './commands/campaign.js';
 import { runCommitCreate, type CommitCreateResult } from './commands/commit-create.js';
 import {
+  isDevLinkAvailable,
   linkSdkToDemo,
   runDevStatus,
   type DevActionResult,
@@ -105,6 +106,8 @@ type BuildProgramOptions = {
 };
 
 const OUTCOME_SEPARATOR = '-----------------------------------------';
+const DEV_LINK_UNAVAILABLE =
+  'SDK-to-demo dev link is not configured for this project. Set defaults.npm_scope and defaults.dev_link_packages in repos.yaml and map `sdk` and `demo` repos.';
 
 function printJson(output: Output, value: unknown) {
   output(JSON.stringify(value, null, 2));
@@ -380,7 +383,7 @@ async function ensureAllyImplementationRepo(
 
   if (!interactive) {
     output(
-      `Ally issue ${ref.repo}#${ref.number} has no implementation repo declared. Re-run interactively, or add a comment like \`Owner repo: TeamFloPay/<mapped-repo>\` on the issue.`
+      `Ally issue ${ref.repo}#${ref.number} has no implementation repo declared. Re-run interactively, or add a comment like \`Owner repo: <owner>/<mapped-repo>\` on the issue.`
     );
     return false;
   }
@@ -1902,7 +1905,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
 
   program
     .name('warroom')
-    .description('TeamFloPay local command center and cross-repo orchestration workspace.')
+    .description('Local command center and cross-repo orchestration workspace.')
     .version('0.1.0')
     .helpOption('-h, --help, -help', 'Display help.')
     .showHelpAfterError();
@@ -1974,8 +1977,10 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         const branch = repo.branch ? ` ${repo.branch}@${repo.headSha ?? 'unknown'}` : '';
         output(`${repo.github} [${repo.status}, ${checkoutState}${dirty}${branch}] -> ${repo.resolvedPath} (${repo.specialist.name})`);
       }
-      const devStatus = runDevStatus(workspaceRoot);
-      output(`SDK-to-demo dev link: ${devStatus.linked ? 'linked' : devStatus.partiallyLinked ? 'partially linked' : 'unlinked'}`);
+      if (isDevLinkAvailable(workspaceRoot)) {
+        const devStatus = runDevStatus(workspaceRoot);
+        output(`SDK-to-demo dev link: ${devStatus.linked ? 'linked' : devStatus.partiallyLinked ? 'partially linked' : 'unlinked'}`);
+      }
     });
 
   maps
@@ -2173,7 +2178,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
   issue
     .command('fortify')
     .description('Post-MVP quality/refactor issue creation flow.')
-    .action(() => output('warroom issue fortify is deferred from the MVP and tracked in TeamFloPay/infra#7.'));
+    .action(() => output('warroom issue fortify is deferred from the MVP.'));
   issue
     .command('usage')
     .description('Print War Room LLM usage tracked for an issue.')
@@ -2395,7 +2400,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
               } else {
                 printOutcome(
                   output,
-                  'Outcome: not started. Ally issue has no implementation repo. Re-run interactively or add an `Owner repo: TeamFloPay/<mapped-repo>` comment, then retry.'
+                  'Outcome: not started. Ally issue has no implementation repo. Re-run interactively or add an `Owner repo: <owner>/<mapped-repo>` comment, then retry.'
                 );
               }
               process.exitCode = 1;
@@ -2455,7 +2460,7 @@ export function buildProgram(options: BuildProgramOptions = {}) {
           if (!ensured) {
             printOutcome(
               output,
-              'Outcome: not started. Ally issue has no implementation repo. Pick a repo when prompted or add an `Owner repo: TeamFloPay/<mapped-repo>` comment, then retry.'
+              'Outcome: not started. Ally issue has no implementation repo. Pick a repo when prompted or add an `Owner repo: <owner>/<mapped-repo>` comment, then retry.'
             );
             process.exitCode = 1;
             return;
@@ -2926,6 +2931,10 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .description('Show SDK-to-demo local dev-link state and prerequisites.')
     .option('--json', 'Print machine-readable output.')
     .action((opts: { json?: boolean }) => {
+      if (!isDevLinkAvailable(workspaceRoot)) {
+        output(DEV_LINK_UNAVAILABLE);
+        return;
+      }
       const result = runDevStatus(workspaceRoot);
       if (opts.json) {
         printJson(output, result);
@@ -2941,6 +2950,10 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--skip-build', 'Do not build SDK packages before linking.')
     .option('--json', 'Print machine-readable output.')
     .action((opts: { skipBuild?: boolean; json?: boolean }) => {
+      if (!isDevLinkAvailable(workspaceRoot)) {
+        output(DEV_LINK_UNAVAILABLE);
+        return;
+      }
       const result = linkSdkToDemo(workspaceRoot, { skipBuild: opts.skipBuild });
       if (opts.json) {
         printJson(output, result);
@@ -2955,6 +2968,10 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--skip-install', 'Do not run pnpm install after removing local links.')
     .option('--json', 'Print machine-readable output.')
     .action((opts: { skipInstall?: boolean; json?: boolean }) => {
+      if (!isDevLinkAvailable(workspaceRoot)) {
+        output(DEV_LINK_UNAVAILABLE);
+        return;
+      }
       const result = unlinkSdkFromDemo(workspaceRoot, { skipInstall: opts.skipInstall });
       if (opts.json) {
         printJson(output, result);

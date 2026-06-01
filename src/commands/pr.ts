@@ -22,7 +22,8 @@ import {
   type LlmUsageSummary,
 } from '../lib/llm-usage.js';
 import { parseRepoRef } from '../lib/refs.js';
-import { getRepoHealth, loadRepoManifest, runGit } from '../lib/repos.js';
+import { getProjectConfig, getRepoHealth, loadRepoManifest, runGit } from '../lib/repos.js';
+import { findWarRoomWorkspace } from '../lib/workspace.js';
 import { buildSpecialistContext } from '../lib/specialist-context.js';
 import {
   assignSelfToIssue,
@@ -345,8 +346,20 @@ export type PrReviewQueueOptions = {
 const REVIEW_QUEUE_STATUSES: CampaignStatusName[] = ['battlefield-active', 'skirmish'];
 const DEFAULT_BACKEND_COMMAND = 'npm run start:api';
 const DEFAULT_DEMO_E2E_COMMAND = 'npm run test:e2e';
-const DEFAULT_BACKEND_BASE_URL = 'https://api.local.flopay.com';
-const DEFAULT_DEMO_BASE_URL = 'https://demo.local.flopay.com';
+const DEFAULT_BACKEND_BASE_URL = 'https://localhost';
+const DEFAULT_DEMO_BASE_URL = 'https://localhost';
+
+// Project e2e settings come from repos.yaml `defaults` (e2e_backend_base_url,
+// e2e_demo_base_url, e2e_local_host_suffix), resolved lazily from the workspace
+// since the merge helpers below are not threaded a workspaceRoot. Env vars
+// (WARROOM_MERGE_*) still take precedence. Returns null outside a workspace.
+function projectE2EConfig() {
+  try {
+    return getProjectConfig(findWarRoomWorkspace());
+  } catch {
+    return null;
+  }
+}
 const DEFAULT_BACKEND_READY_PATH = '/v1/health';
 const DEFAULT_BACKEND_READY_PROBE_TIMEOUT_MS = 3_000;
 const DEFAULT_BACKEND_READY_TIMEOUT_MS = 120_000;
@@ -3287,8 +3300,9 @@ function urlWithPath(baseUrl: string, pathPart: string) {
 }
 
 function mergeE2EConfig() {
-  const billingApiUrl = envValue('WARROOM_MERGE_BACKEND_BASE_URL', DEFAULT_BACKEND_BASE_URL).replace(/\/+$/, '');
-  const demoBaseUrl = envValue('WARROOM_MERGE_DEMO_BASE_URL', DEFAULT_DEMO_BASE_URL).replace(/\/+$/, '');
+  const e2e = projectE2EConfig();
+  const billingApiUrl = envValue('WARROOM_MERGE_BACKEND_BASE_URL', e2e?.e2eBackendBaseUrl ?? DEFAULT_BACKEND_BASE_URL).replace(/\/+$/, '');
+  const demoBaseUrl = envValue('WARROOM_MERGE_DEMO_BASE_URL', e2e?.e2eDemoBaseUrl ?? DEFAULT_DEMO_BASE_URL).replace(/\/+$/, '');
   const readyPath = envValue('WARROOM_MERGE_BACKEND_READY_PATH', DEFAULT_BACKEND_READY_PATH);
   const timeout = Number(envValue('WARROOM_MERGE_BACKEND_READY_TIMEOUT_MS', String(DEFAULT_BACKEND_READY_TIMEOUT_MS)));
   const probeTimeout = Number(
@@ -3423,13 +3437,12 @@ function booleanEnv(name: string, fallback: boolean) {
 
 function isLocalHealthHostname(hostname: string) {
   const normalized = hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1' ||
-    normalized === 'local.flopay.com' ||
-    normalized.endsWith('.local.flopay.com')
-  );
+  if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') return true;
+  // Projects can mark a custom local domain (e.g. local.example.com) as a
+  // trusted local health host via repos.yaml defaults.e2e_local_host_suffix.
+  const suffix = (process.env.WARROOM_MERGE_LOCAL_HOST_SUFFIX ?? projectE2EConfig()?.e2eLocalHostSuffix ?? '').toLowerCase();
+  if (!suffix) return false;
+  return normalized === suffix || normalized.endsWith(`.${suffix}`);
 }
 
 function shouldAllowInsecureLocalTls(url: URL) {

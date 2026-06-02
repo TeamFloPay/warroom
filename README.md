@@ -16,7 +16,6 @@ Prerequisites:
 ```sh
 npm install
 npm run build
-npm test
 ```
 
 First-time setup — generate your project-specific config from the shipped
@@ -250,3 +249,11 @@ npm run warroom -- allies status
 ## Manual Bypass
 
 War Room is an accelerator, not a dependency for product development. Direct child-repo work remains valid: clone the owning repo, read its `AGENTS.md`, use its normal setup/test commands, and open PRs from that repo.
+
+## Contributing
+
+Once forked you can open pull requests for review. Make sure all code is using TDD and that all tests pass before committing code.
+
+```
+npm test
+```

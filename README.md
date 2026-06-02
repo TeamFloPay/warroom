@@ -1,21 +1,17 @@
-# Flo War Room
+# ZeroHuman - War Room
 
-War Room is the local command center for Flo cross-repo work. It owns the operating layer around repositories: repo maps, company-level agent rules, local-only orchestration, issue/PR workflow helpers, and future intelligence/reporting contracts.
+War Room is the local command center for your own AI army and  cross-repo work. It owns the operating layer around repositories: repo maps, company-level agent rules, local-only orchestration, issue/PR workflow helpers, and future intelligence/reporting contracts.
 
 It does not own product source code. Product code remains in the child repositories that build, test, deploy, and publish independently.
 
-Flo is the company/product umbrella term.
-
+This is a harness to help you develop with AI and increase development productivity. 
 
 ## Quick Start
 
 Prerequisites:
 
 - Node.js `20` or newer
-- Git and GitHub SSH access to `TeamFloPay/*`
-- GitHub CLI authenticated with project/repo access for issue, PR, and Campaign Map commands
-
-From the War Room repo:
+- Fork [https://github.com/teamzerohuman/warroom](ZeroHuman - War Room) locally
 
 ```sh
 npm install
@@ -77,7 +73,7 @@ If you already keep sibling checkouts next to War Room, such as `../sdk` or `../
 Use this flow when an existing GitHub issue should move from triage to an opened PR. Replace the example refs with the real issue, repo, and PR numbers.
 
 ```sh
-ISSUE=TeamFloPay/backend#562
+ISSUE=org/repo#562
 BASE=main
 ```
 
@@ -147,13 +143,13 @@ When run interactively from a mapped child checkout, `commit create` first print
 warroom pr create --confirm --confirm-status --write-artifact
 ```
 
-Run this from the development branch in the owning child repo, or pass `--branch <name>`. `pr create` first uses branch metadata written by `issue next`, then falls back to inferring `TeamFloPay/backend#562` from a `warroom/562-...` branch. It asks the LLM adapter to draft a PR title/body from the actual branch commits and diff, includes `Closes <issue>`, pushes the branch, creates the GitHub PR, posts the generated PR summary to the linked source issue, and moves the issue plus workflow label to `skirmish` when `--confirm-status` is present. Large diffs are summarized across multiple adapter chunk calls before the final PR text prompt instead of being clipped from the prompt. If the adapter fails, War Room falls back to a local issue/commit summary. After a successful interactive create, War Room asks whether to run `warroom pr review` for the new PR.
+Run this from the development branch in the owning child repo, or pass `--branch <name>`. `pr create` first uses branch metadata written by `issue next`, then falls back to inferring `org/repo#562` from a `warroom/562-...` branch. It asks the LLM adapter to draft a PR title/body from the actual branch commits and diff, includes `Closes <issue>`, pushes the branch, creates the GitHub PR, posts the generated PR summary to the linked source issue, and moves the issue plus workflow label to `skirmish` when `--confirm-status` is present. Large diffs are summarized across multiple adapter chunk calls before the final PR text prompt instead of being clipped from the prompt. If the adapter fails, War Room falls back to a local issue/commit summary. After a successful interactive create, War Room asks whether to run `warroom pr review` for the new PR.
 
 8. Move into the review loop.
 
 ```sh
 warroom pr review
-warroom pr review --pr TeamFloPay/backend#655 --issue "$ISSUE" --launch --confirm-status --write-artifact
+warroom pr review --pr org/repo#655 --issue "$ISSUE" --launch --confirm-status --write-artifact
 ```
 
 Without `--pr`, `pr review` lists open PRs linked from issues in `battlefield-active` or `skirmish`, ordered by latest update. If that Campaign queue is empty and the command is run inside a mapped child repo branch with a single open PR, it falls back to that current-branch PR. In an interactive terminal it asks whether to launch the detected PR review handoff, using the selected PR as if `--pr <owner/repo#number> --launch` was passed. When launched from the `pr create` follow-up prompt, it first waits for CodeRabbit to appear and settle on the initial PR commit; if no outstanding CodeRabbit feedback remains, it exits complete without an adapter run. Non-interactive fallback runs print the current-branch PR preflight. With `--pr --launch`, it sends the fixed GitHub/CodeRabbit feedback handoff to the adapter with the current review-thread IDs, waits for a new PR commit, waits for CodeRabbit to appear and settle on that commit, checks outstanding current CodeRabbit comments, verifies that handled CodeRabbit threads have `Change made:` or `Skipped:` replies, and repeats the adapter loop until no CodeRabbit feedback remains or the loop blocks. It resolves the linked issue from queue selection, branch metadata, or the PR body closing line, so ally-source issues can still move to `skirmish` when confirmed.
@@ -174,11 +170,11 @@ warroom pr merge --issue "$ISSUE" --confirm
 War Room records issue-attributed LLM adapter usage automatically. The canonical ledger is keyed by the source GitHub issue, so ally issues keep the same usage total even when implementation happens in a mapped product repo:
 
 ```text
-.warroom/runs/issues/TeamFloPay__ally-clicktech__6/usage-ledger.json
-.warroom/runs/issues/TeamFloPay__ally-clicktech__6/usage-summary.md
+.warroom/runs/issues/<org>__<repo>__<issue>/usage-ledger.json
+.warroom/runs/issues/<org>__<repo>__<issue>/usage-summary.md
 ```
 
-The ledger stores metadata, token counts, estimates, and cost fields only; it does not store prompts or model output. Every adapter prompt with an issue context starts with a task title like `[TeamFloPay/backend#666] issue-triage/interactive-triage`, and the same title is stored on the usage entry so Codex session history, local logs, and War Room cost records can be cross-checked. `codex exec` output is captured while still being shown in the terminal where possible, so War Room can parse adapter-reported token totals when present. Interactive Codex TUI sessions use the local terminal capture wrapper when a controlling terminal is available, so the final `Token usage:` footer can be parsed too. Otherwise War Room records prompt/output token estimates and marks the entry as estimated.
+The ledger stores metadata, token counts, estimates, and cost fields only; it does not store prompts or model output. Every adapter prompt with an issue context starts with a task title like `[org/repo#666] issue-triage/interactive-triage`, and the same title is stored on the usage entry so Codex session history, local logs, and War Room cost records can be cross-checked. `codex exec` output is captured while still being shown in the terminal where possible, so War Room can parse adapter-reported token totals when present. Interactive Codex TUI sessions use the local terminal capture wrapper when a controlling terminal is available, so the final `Token usage:` footer can be parsed too. Otherwise War Room records prompt/output token estimates and marks the entry as estimated.
 
 Pricing is read from `config/llm-pricing.json`. Missing rates are reported as `Cost: unavailable` rather than treated as zero. Inspect current usage before merge with:
 
@@ -216,27 +212,6 @@ npm run warroom -- abort --print-recovery
 npm run warroom -- dev status
 ```
 
-## SDK-To-Demo Linking
-
-SDK-to-demo local linking is available through `warroom dev link`, `warroom dev status`, and `warroom dev unlink`.
-
-Use local linking only when you need unreleased SDK package changes to be consumed by the standalone demo app. App repos should keep normal published `@flopay/*` semver ranges by default; War Room linking is a local development convenience, not a committed dependency model.
-
-Typical flow:
-
-```sh
-npm run warroom -- dev status
-npm run warroom -- dev link
-```
-
-Then run the linked demo from the demo repo:
-
-```sh
-corepack pnpm dev
-```
-
-Use `npm run warroom -- dev unlink` to restore published-package behavior.
-
 ## Repository Rules
 
 - `warroom` commands the campaign; child repositories own the code.
@@ -253,31 +228,11 @@ The machine-readable source of truth is `repos.yaml`. The human-readable view is
 
 The nested `merge` config controls confirmed PR merge gates. `merge.playwright` is enabled for `sdk`, `backend`, and `demo`; all other mapped repos skip the demo Playwright gate during `warroom pr merge`. `merge.bump` is enabled for `sdk`, `backend`, and `docs`; confirmed merges can run each repo's configured package-script bump command on the PR branch before the PR is merged. `merge.changelog` is enabled for `sdk` and `backend` using OpenChangelog format, so confirmed and explicitly approved changelog closeouts create one public release-note Markdown file under each repo's configured `release-notes/` folder after base-branch actions pass and link the final victory update to the configured public changelog URL. See `docs/openchangelog-release-notes.md` for the adapter guardrails and examples.
 
-The merge gate checks backend readiness with a direct GET to `https://api.local.flopay.com/v1/health`. For local hosts (`localhost`, loopback, and `*.local.flopay.com`), War Room accepts untrusted local TLS certificates by default so it can reuse an already-running API instead of starting another one. When the demo e2e run targets a local HTTPS backend, War Room also passes `NODE_OPTIONS=--use-system-ca` to the Playwright process so the demo web server can trust locally installed development certificates. Set `WARROOM_MERGE_BACKEND_STRICT_TLS=true` to require trusted certificates for the readiness probe, or `WARROOM_MERGE_DEMO_USE_SYSTEM_CA=false` to disable the demo Node system CA flag.
-
-Current mapped repos:
-
-- `sdk`
-- `backend`
-- `infra`
-- `demo`
-- `docs`
-- `dashboard`
-- `landing`
+War Room also passes `NODE_OPTIONS=--use-system-ca` to the Playwright process so the demo web server can trust locally installed development certificates. Set `WARROOM_MERGE_BACKEND_STRICT_TLS=true` to require trusted certificates for the readiness probe, or `WARROOM_MERGE_DEMO_USE_SYSTEM_CA=false` to disable the demo Node system CA flag.
 
 ## Enterprise Allies
 
 Enterprise client support lives under `allies/*`. The shared manifest is `allies.yaml`; it tracks safe metadata such as ally id, shared docs, local env path, and client issue repo sync boundary.
-
-ClickTech is the first ally workspace:
-
-- Safe shared docs: `allies/clicktech/docs/*`
-- Local secrets: `allies/clicktech/.env.local`
-- Local scratch: `allies/clicktech/workspace/*`
-- Client issue repo checkout: `allies/clicktech/repos/ally-clicktech`
-- Planned issue sync: ClickTech Jira <> Unito <> `TeamFloPay/ally-clicktech`
-
-Check ally readiness:
 
 ```sh
 npm run warroom -- allies status

@@ -138,7 +138,7 @@ function containsPath(parent: string, child: string) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function inferRepoFromPath(repos: RepoHealth[], currentPath: string) {
+export function inferRepoFromPath(repos: RepoHealth[], currentPath: string) {
   const resolved = path.resolve(currentPath);
   return repos
     .filter((repo) => repo.checkedOut && containsPath(repo.resolvedPath, resolved))

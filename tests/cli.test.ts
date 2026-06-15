@@ -3691,6 +3691,97 @@ exit 0
     expect(result.validation[0]?.status).toBe(7);
     expect(result.blocked).toContain('Validation failed: node -e "process.exit(7)"');
   });
+
+  it('previews the changelog plan from the working-tree diff without running the adapter', async () => {
+    const { sdk } = makeChangelogMergeFixture({ openchangelog: true });
+
+    const lines: string[] = [];
+    const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+    await program.parseAsync(['node', 'warroom', 'changelog', 'create']);
+
+    const output = lines.join('\n');
+    expect(output).toContain('Changelog create for TeamFloPay/sdk: preflight only');
+    expect(output).toContain('(openchangelog');
+    expect(output).toMatch(/Changed files \(1\)/);
+    expect(output).toContain('index.ts');
+    expect(output).not.toContain('Changelog file:');
+    expect(existsSync(path.join(sdk, 'release-notes', 'v1.0.1.ready-sdk-pr.md'))).toBe(false);
+  });
+
+  it('creates an OpenChangelog release note from the working-tree diff against main', async () => {
+    const { root, sdk } = makeChangelogMergeFixture({ openchangelog: true });
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeOpenChangelogCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+      await program.parseAsync(['node', 'warroom', 'changelog', 'create', '--confirm']);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Changelog create for TeamFloPay/sdk: created');
+      expect(output).toContain('Changelog file: release-notes/v1.0.1.ready-sdk-pr.md');
+      expect(output).toContain('Title: v1.0.1 - Ready SDK PR');
+      expect(output).toContain('index.ts');
+
+      const note = readFileSync(path.join(sdk, 'release-notes', 'v1.0.1.ready-sdk-pr.md'), 'utf8');
+      expect(note).toContain('title: v1.0.1 - Ready SDK PR');
+
+      // The note is left in the working tree; changelog create never commits or pushes.
+      const status = spawnSync('git', ['status', '--porcelain'], { cwd: sdk, encoding: 'utf8' });
+      expect(status.stdout).toContain('release-notes/v1.0.1.ready-sdk-pr.md');
+      const subject = spawnSync('git', ['log', '-1', '--pretty=%s'], { cwd: sdk, encoding: 'utf8' });
+      expect(subject.stdout.trim()).toBe('feat: ready sdk change');
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it('updates a keep-a-changelog CHANGELOG.md from the working-tree diff without committing', async () => {
+    const { root, sdk } = makeChangelogMergeFixture();
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeKeepAChangelogCodexFixture(bin);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+      await program.parseAsync(['node', 'warroom', 'changelog', 'create', '--confirm']);
+
+      const output = lines.join('\n');
+      expect(output).toContain('Changelog create for TeamFloPay/sdk: created');
+      expect(output).toContain('Changelog file: CHANGELOG.md');
+      expect(output).toContain('(keep-a-changelog');
+
+      const changelog = readFileSync(path.join(sdk, 'CHANGELOG.md'), 'utf8');
+      expect(changelog).toContain('Ready SDK change.');
+
+      const subject = spawnSync('git', ['log', '-1', '--pretty=%s'], { cwd: sdk, encoding: 'utf8' });
+      expect(subject.stdout.trim()).toBe('feat: ready sdk change');
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it('blocks changelog create when the working tree matches the base branch', async () => {
+    const { sdk } = makeChangelogMergeFixture({ openchangelog: true });
+    const switched = spawnSync('git', ['switch', 'main'], { cwd: sdk, encoding: 'utf8' });
+    expect(switched.status).toBe(0);
+
+    const lines: string[] = [];
+    const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+    await program.parseAsync(['node', 'warroom', 'changelog', 'create', '--confirm']);
+
+    const output = lines.join('\n');
+    expect(output).toContain('Changelog create for TeamFloPay/sdk: blocked');
+    expect(output).toMatch(/No changes detected against main/);
+    expect(existsSync(path.join(sdk, 'release-notes', 'v1.0.1.ready-sdk-pr.md'))).toBe(false);
+  });
 });
 
 function makeDevFixture() {
@@ -5936,6 +6027,25 @@ fs.writeFileSync(
     ''
   ].join('\\n')
 );
+process.exit(0);
+`
+  );
+  chmodSync(codexPath, 0o755);
+}
+
+function writeKeepAChangelogCodexFixture(bin: string) {
+  const codexPath = path.join(bin, 'codex');
+  writeFileSync(
+    codexPath,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const fs = require('node:fs');
+const path = require('node:path');
+const cdIndex = args.indexOf('--cd');
+const cwd = cdIndex === -1 ? process.cwd() : args[cdIndex + 1];
+const file = path.join(cwd, 'CHANGELOG.md');
+const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '# Changelog\\n';
+fs.writeFileSync(file, existing.replace('# Changelog\\n', '# Changelog\\n\\n## 1.0.1\\n- Ready SDK change.\\n'));
 process.exit(0);
 `
   );

@@ -22,6 +22,7 @@ import {
 import { runCampaignStatus, runCampaignStatusCheck } from './commands/campaign.js';
 import { runProjectCreate, runProjectLink, type ProjectSetupResult } from './commands/project.js';
 import { runCommitCreate, type CommitCreateResult } from './commands/commit-create.js';
+import { runChangelogCreate, type ChangelogCreateResult } from './commands/changelog-create.js';
 import {
   isDevLinkAvailable,
   linkSdkToDemo,
@@ -1475,6 +1476,44 @@ function printCommitCreate(output: Output, result: CommitCreateResult) {
   }
   for (const warning of result.warnings) output(`warning: ${warning}`);
   for (const blocker of result.blocked) output(`blocked: ${blocker}`);
+}
+
+function printChangelogCreate(output: Output, result: ChangelogCreateResult) {
+  const state =
+    result.status === 'created'
+      ? 'created'
+      : result.status === 'planned'
+        ? 'preflight only'
+        : result.status === 'blocked'
+          ? 'blocked'
+          : 'failed';
+  output(`Changelog create for ${result.repo}: ${state}`);
+  output(`Path: ${result.path ?? 'missing'}`);
+  output(`Branch: ${result.branch ?? 'unknown'} (diffing against ${result.base})`);
+  output(`Changelog: ${result.changelogPath ?? 'missing'} (${result.changelogFormat}${result.changelogEnabled ? '' : ', disabled in repos.yaml'})`);
+  if (result.changelogUrl) output(`Changelog URL: ${result.changelogUrl}`);
+  if (result.version) output(`Detected version: ${result.version}`);
+  if (result.adapterCommand) output(`Adapter: ${result.adapterCommand}`);
+  output(`Changed files (${result.changedFiles.length}):`);
+  for (const file of result.changedFiles) output(`  ${file.path} (+${file.additions}/-${file.deletions})`);
+  if (result.changelogFile) output(`Changelog file: ${result.changelogFile}`);
+  if (result.title) output(`Title: ${result.title}`);
+  if (result.durationMs !== null) output(`Duration: ${result.durationMs}ms`);
+  for (const blocker of result.blocked) output(`blocked: ${blocker}`);
+  if (result.error) output(`error: ${result.error}`);
+
+  if (result.status === 'created') {
+    printOutcome(
+      output,
+      `Outcome: changelog entry written to ${result.changelogFile} in ${result.path}. Review it, then commit when ready.`
+    );
+  } else if (result.status === 'planned') {
+    printOutcome(output, 'Outcome: preflight only; rerun with --confirm to generate the changelog entry with the LLM adapter.');
+  } else if (result.status === 'blocked') {
+    printOutcome(output, 'Outcome: changelog create blocked. Resolve the blockers above and rerun.');
+  } else {
+    printOutcome(output, `Outcome: changelog create failed.${result.error ? ` ${result.error}` : ''}`);
+  }
 }
 
 async function promptPrCreateAfterCommit(
@@ -3108,6 +3147,36 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     });
 
   const changelog = program.command('changelog').description('Changelog distribution commands.');
+  changelog
+    .command('create')
+    .description('Generate a changelog entry from the current working-tree diff against the base branch.')
+    .option('--repo <id>', 'Repo id from repos.yaml. Defaults to the mapped child repo containing the current directory.')
+    .option('--base <branch>', 'Base branch to diff against. Defaults to the manifest default branch.')
+    .option('--issue <owner/repo#number>', 'Linked issue for added context in the generated entry.')
+    .option('--confirm', 'Actually run the LLM adapter and write the changelog file. Otherwise previews the plan only.')
+    .option('--json', 'Print machine-readable output.')
+    .action((opts: { repo?: string; base?: string; issue?: string; confirm?: boolean; json?: boolean }) => {
+      let result: ChangelogCreateResult;
+      try {
+        result = runChangelogCreate(workspaceRoot, {
+          repo: opts.repo,
+          base: opts.base,
+          issue: opts.issue,
+          confirm: opts.confirm,
+          currentPath: invocationCwd,
+        });
+      } catch (error) {
+        output(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        printJson(output, result);
+      } else {
+        printChangelogCreate(output, result);
+      }
+      if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 1;
+    });
   changelog
     .command('share')
     .description('Generate and distribute changelog updates to ally Slack channels.')

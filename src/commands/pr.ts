@@ -3930,7 +3930,7 @@ function readJsonFile<T>(filePath: string): T | null {
   }
 }
 
-function readPackageVersions(repoPath: string) {
+export function readPackageVersions(repoPath: string) {
   const versions: Array<{ file: string; name: string; version: string }> = [];
   const addPackage = (filePath: string) => {
     const packageJson = readJsonFile<{ name?: unknown; version?: unknown }>(filePath);
@@ -3953,7 +3953,7 @@ function readPackageVersions(repoPath: string) {
   return versions;
 }
 
-function readOpenChangelogNotes(changelogPath: string) {
+export function readOpenChangelogNotes(changelogPath: string) {
   if (!existsSync(changelogPath)) return [];
   return readdirSync(changelogPath, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
@@ -3968,7 +3968,7 @@ function readOpenChangelogNotes(changelogPath: string) {
     .slice(0, 3);
 }
 
-function markdownFrontmatterTitle(markdown: string) {
+export function markdownFrontmatterTitle(markdown: string) {
   return readMarkdownFrontmatterField(markdown, 'title');
 }
 
@@ -4029,7 +4029,7 @@ function publicChangelogGuardrails() {
   ];
 }
 
-function buildChangelogPrompt(options: {
+export function buildChangelogPrompt(options: {
   prRef: string;
   issueRef: string | undefined;
   pr: {

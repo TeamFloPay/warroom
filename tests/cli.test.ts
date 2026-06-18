@@ -3744,7 +3744,7 @@ exit 0
 
     const lines: string[] = [];
     const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
-    await program.parseAsync(['node', 'warroom', 'changelog', 'create']);
+    await program.parseAsync(['node', 'warroom', 'changelog', 'create', '--preview']);
 
     const output = lines.join('\n');
     expect(output).toContain('Changelog create for TeamFloPay/sdk: preflight only');
@@ -3798,7 +3798,8 @@ exit 0
     try {
       const lines: string[] = [];
       const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
-      await program.parseAsync(['node', 'warroom', 'changelog', 'create', '--confirm']);
+      // Running is the default now; no --confirm needed.
+      await program.parseAsync(['node', 'warroom', 'changelog', 'create']);
 
       const output = lines.join('\n');
       expect(output).toContain('Changelog create for TeamFloPay/sdk: created');

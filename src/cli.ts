@@ -1512,7 +1512,7 @@ function printChangelogCreate(output: Output, result: ChangelogCreateResult) {
       `Outcome: changelog entry written to ${result.changelogFile} in ${result.path}. Review it, then commit when ready.`
     );
   } else if (result.status === 'planned') {
-    printOutcome(output, 'Outcome: preflight only; rerun with --confirm to generate the changelog entry with the LLM adapter.');
+    printOutcome(output, 'Outcome: preview only (--preview); rerun without --preview to generate the changelog entry with the LLM adapter.');
   } else if (result.status === 'blocked') {
     printOutcome(output, 'Outcome: changelog create blocked. Resolve the blockers above and rerun.');
   } else {
@@ -3157,16 +3157,17 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .option('--repo <id>', 'Repo id from repos.yaml. Defaults to the mapped child repo containing the current directory.')
     .option('--base <branch>', 'Base branch to diff against. Defaults to the manifest default branch.')
     .option('--issue <owner/repo#number>', 'Linked issue for added context in the generated entry.')
-    .option('--confirm', 'Actually run the LLM adapter and write the changelog file. Otherwise previews the plan only.')
+    .option('--preview', 'Preview the plan only without running the LLM adapter or writing the changelog file.')
+    .option('--confirm', 'Deprecated: running is now the default; this flag is accepted but has no effect. Use --preview to plan only.')
     .option('--json', 'Print machine-readable output.')
-    .action((opts: { repo?: string; base?: string; issue?: string; confirm?: boolean; json?: boolean }) => {
+    .action((opts: { repo?: string; base?: string; issue?: string; preview?: boolean; confirm?: boolean; json?: boolean }) => {
       let result: ChangelogCreateResult;
       try {
         result = runChangelogCreate(workspaceRoot, {
           repo: opts.repo,
           base: opts.base,
           issue: opts.issue,
-          confirm: opts.confirm,
+          confirm: !opts.preview,
           currentPath: invocationCwd,
         });
       } catch (error) {

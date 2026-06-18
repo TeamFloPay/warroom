@@ -47,6 +47,10 @@ export type AdapterRunOptions = {
   outputLastMessagePath?: string;
   captureStdout?: boolean;
   usage?: LlmUsageContext;
+  // Short, human-readable label describing what this launch is for (e.g.
+  // "diff chunk 2/5"). Surfaced in the "Launching adapter" log so a sequence
+  // of calls reads as progress instead of an accidental loop.
+  stageLabel?: string;
 };
 
 const PROMPT_VISIBLE_ENV_KEYS = ['SENTRY_AUTH_TOKEN', 'SENTRY_ORG'] as const;
@@ -287,7 +291,8 @@ export function runAdapter(workspaceRoot: string, prompt: string, options: Adapt
   const captureStdout = options.captureStdout === true;
   const formatInvocation = captureStdout ? baseInvocation : withClaudeOutputFormat(baseInvocation, 'stream-json');
   const invocation = withLastMessageOutput(formatInvocation, options.outputLastMessagePath);
-  process.stderr.write(`Launching adapter: ${invocation.display}\n`);
+  const stageSuffix = options.stageLabel ? ` (${options.stageLabel})` : '';
+  process.stderr.write(`Launching adapter${stageSuffix}: ${invocation.display}\n`);
   const result = runForegroundAdapterProcess(invocation, adapterPrompt, {
     captureStdout,
     env: {
@@ -560,7 +565,8 @@ function runInteractiveAdapterProcess(invocation: AdapterInvocation, env: NodeJS
 export function runInteractiveAdapter(workspaceRoot: string, prompt: string, options: AdapterRunOptions = {}): AdapterRunResult {
   const adapterPrompt = promptWithAdapterRuntimeNote(workspaceRoot, prompt, options.usage);
   const invocation = getInteractiveAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot, adapterPrompt);
-  process.stderr.write(`Launching interactive adapter: ${invocation.display}\n`);
+  const stageSuffix = options.stageLabel ? ` (${options.stageLabel})` : '';
+  process.stderr.write(`Launching interactive adapter${stageSuffix}: ${invocation.display}\n`);
   const result = runInteractiveAdapterProcess(invocation, {
     ...process.env,
     ...localProcessEnv(workspaceRoot),

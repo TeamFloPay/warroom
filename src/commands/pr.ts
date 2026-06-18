@@ -306,6 +306,10 @@ export type DevelopmentBranchResult = {
   applied: boolean;
   linked: boolean;
   checkedOut: boolean;
+  // True when the mapped checkout was already on the feature branch, so we
+  // resumed the existing (possibly in-progress) work instead of creating a
+  // fresh branch.
+  reused?: boolean;
   blocked: string[];
   output: string | null;
   error: string | null;
@@ -926,8 +930,34 @@ function createDevelopmentBranchResult(
 
   const repo = repoEntry ? getRepoHealth(workspaceRoot, repoEntry) : null;
   if (repo && !repo.checkedOut) blocked.push(`Mapped checkout is missing: ${repo.resolvedPath}`);
-  if (checkoutRequired && repo?.clean === false) {
+
+  // Resume path: when the mapped checkout is already on the target feature
+  // branch, a prior run created it and the adapter likely left in-progress,
+  // uncommitted work. There is no branch switch to perform, so the
+  // "clean checkout" requirement does not apply — hand the existing work back
+  // to the adapter to pick up where it left off rather than blocking.
+  const alreadyOnFeatureBranch = Boolean(repo?.checkedOut && repo.branch === branch);
+
+  if (checkoutRequired && !alreadyOnFeatureBranch && repo?.clean === false) {
     blocked.push(`Mapped checkout has local changes. Commit, stash, or move them before creating ${branch}.`);
+  }
+
+  if (apply && alreadyOnFeatureBranch && blocked.length === 0) {
+    return {
+      repo: implementationRepo,
+      path: repo!.resolvedPath,
+      branch,
+      base,
+      command,
+      checkoutRequired,
+      applied: true,
+      linked: true,
+      checkedOut: true,
+      reused: true,
+      blocked: [],
+      output: `Mapped checkout is already on ${branch}; resuming existing work without recreating the branch.`,
+      error: null,
+    };
   }
 
   if (!apply || blocked.length > 0 || !repo?.checkedOut) {
@@ -2729,7 +2759,8 @@ function runAdapterForFinalMessage(
     stage: string;
     repo: string;
     commandRunId: string;
-  }
+  },
+  stageLabel?: string
 ) {
   const outputDir = mkdtempSync(path.join(tmpdir(), 'warroom-adapter-message-'));
   const outputPath = path.join(outputDir, 'last-message.txt');
@@ -2738,6 +2769,7 @@ function runAdapterForFinalMessage(
       cwd: repoPath,
       outputLastMessagePath: outputPath,
       captureStdout: true,
+      stageLabel,
       usage: {
         issue: usage.issue,
         command: usage.command,
@@ -2856,6 +2888,10 @@ function summarizeDiffForPrText(workspaceRoot: string, repoPath: string, options
   }
 
   const chunks = splitDiffPatch(diffPatch);
+  process.stderr.write(
+    `Diff too large for one prompt (${Math.round(diffPatch.length / 1000)}k chars); ` +
+      `summarizing in ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} before generating PR text...\n`
+  );
   const summaries: string[] = [];
   let adapterCommand: string | null = null;
   for (const [index, chunk] of chunks.entries()) {
@@ -2869,7 +2905,8 @@ function summarizeDiffForPrText(workspaceRoot: string, repoPath: string, options
         stage: `diff-summary-${index + 1}`,
         repo: options.repo,
         commandRunId,
-      }
+      },
+      `diff chunk ${index + 1}/${chunks.length}`
     );
     adapterCommand = result.adapterCommand;
     if (result.error) {
@@ -2931,13 +2968,19 @@ function generatePrText(
     const promptOptions = diffSummary.summaries
       ? { ...options, diffPatch: undefined, diffSummaries: diffSummary.summaries }
       : options;
-    const result = runAdapterForFinalMessage(workspaceRoot, repoPath, buildPrTextPrompt(promptOptions), {
-      issue: options.issueRef,
-      command: 'pr-create',
-      stage: 'pr-text',
-      repo: options.repo,
-      commandRunId,
-    });
+    const result = runAdapterForFinalMessage(
+      workspaceRoot,
+      repoPath,
+      buildPrTextPrompt(promptOptions),
+      {
+        issue: options.issueRef,
+        command: 'pr-create',
+        stage: 'pr-text',
+        repo: options.repo,
+        commandRunId,
+      },
+      diffSummary.calls > 0 ? 'PR title/body from diff summaries' : 'PR title/body'
+    );
     adapterCommand =
       diffSummary.calls > 0
         ? `${result.adapterCommand} (${diffSummary.calls + 1} LLM calls; full diff summarized in ${diffSummary.calls} chunks)`
@@ -4534,6 +4577,7 @@ async function runMergeChangelog(
     );
     const adapter = runAdapter(workspaceRoot, prompt, {
       cwd: plan.path,
+      stageLabel: 'changelog',
       usage: {
         issue: options.issue ?? null,
         command: 'pr-merge',
@@ -5065,6 +5109,9 @@ export function runIssueStart(workspaceRoot: string, options: PrOptions): PrPlan
       : null,
     '',
     'Mission:',
+    developmentBranch.reused
+      ? `- This is a resumed run: ${featureBranch} already exists and may have uncommitted in-progress changes from an earlier attempt. Review the current working tree (\`git status\`, \`git diff\`) first and continue that work rather than starting over.`
+      : null,
     '- Implement the issue now. Do not stop after writing a plan, preflight, analysis note, or handoff markdown.',
     crossRepoImplementation
       ? `- Use the already prepared development branch ${featureBranch} in ${implementationRepo}. It is intentionally not created in the ally issue repo.`
@@ -5143,6 +5190,7 @@ export function runIssueStart(workspaceRoot: string, options: PrOptions): PrPlan
   }
   const launch = runAdapter(workspaceRoot, prompt, {
     cwd: adapterCwd,
+    stageLabel: 'implementation handoff',
     usage: {
       issue: options.issue,
       command: 'issue-next',
@@ -5445,6 +5493,7 @@ async function runCodeRabbitPrReviewLoop(
     const localHeadBeforeAdapter = gitHeadShaOrNull(adapterCwd);
     const launch = runAdapter(workspaceRoot, prompt, {
       cwd: adapterCwd,
+      stageLabel: `review loop ${index}/${config.maxLoops}`,
       usage: {
         issue: options.issue ?? null,
         command: 'pr-review',

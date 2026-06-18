@@ -1075,6 +1075,53 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('resumes in-progress work when the checkout is already on the feature branch', async () => {
+    const root = makeDevFixture();
+    const sdk = path.resolve(root, '..', 'sdk');
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeGhFixture(bin);
+    writeCodexFixture(bin);
+
+    // Simulate a prior `issue next` that created the feature branch and left
+    // uncommitted, in-progress changes behind before exiting early.
+    const switched = spawnSync('git', ['switch', '-c', 'warroom/7-build-the-selector'], { cwd: sdk, encoding: 'utf8' });
+    if (switched.status !== 0) throw new Error(switched.stderr);
+    writeFileSync(path.join(sdk, 'in-progress-note.md'), 'half-finished implementation\n');
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: sdk, output: (line) => lines.push(line) });
+
+      await program.parseAsync(['node', 'warroom', 'issue', 'next', '--issue', 'TeamFloPay/sdk#7', '--confirm-status']);
+
+      // The dirty checkout must NOT block when we are already on the branch.
+      expect(lines.some((line) => line.includes('Mapped checkout has local changes'))).toBe(false);
+      expect(lines).toContain('Issue start: launched');
+      expect(lines).toContain('Development branch: resumed warroom/7-build-the-selector from main');
+      expect(
+        lines.some((line) => line.includes('reused existing branch (already checked out; resuming in-progress work)'))
+      ).toBe(true);
+      expect(lines).toContain('Development checkout: checked out');
+      expect(lines).toContain('Campaign status: updated TeamFloPay/sdk#7 -> battlefield-active');
+      expectFinalOutcome(
+        lines,
+        'Outcome: LLM adapter completed on warroom/7-build-the-selector; no background session remains. Campaign status updated to battlefield-active.'
+      );
+
+      // Stayed on the feature branch and preserved the in-progress work.
+      const branch = spawnSync('git', ['branch', '--show-current'], { cwd: sdk, encoding: 'utf8' });
+      expect(branch.stdout.trim()).toBe('warroom/7-build-the-selector');
+      expect(existsSync(path.join(sdk, 'in-progress-note.md'))).toBe(true);
+    } finally {
+      process.env.PATH = originalPath;
+      process.exitCode = undefined;
+    }
+  });
+
   it('distinguishes an adapter process failure from a pre-handoff blocker', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');

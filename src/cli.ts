@@ -1040,8 +1040,12 @@ function printPrPlan(output: Output, result: PrPlanResult) {
       branch.linked || branch.command.startsWith('gh issue develop') || branch.command.startsWith('gh api graphql createLinkedBranch')
         ? 'Development branch link'
         : 'Development branch setup';
-    output(`Development branch: ${branch.applied ? 'ready' : 'planned'} ${branch.branch} from ${branch.base}`);
-    output(`${branchSetupLabel}: ${branch.applied ? 'created' : 'planned'} ${branch.command}`);
+    output(`Development branch: ${branch.reused ? 'resumed' : branch.applied ? 'ready' : 'planned'} ${branch.branch} from ${branch.base}`);
+    output(
+      branch.reused
+        ? `${branchSetupLabel}: reused existing branch (already checked out; resuming in-progress work)`
+        : `${branchSetupLabel}: ${branch.applied ? 'created' : 'planned'} ${branch.command}`
+    );
     output(
       `Development checkout: ${branch.checkoutRequired ? branch.checkedOut ? 'checked out' : branch.path ? `not checked out (${branch.path})` : 'missing checkout' : 'not checked out'}`
     );

@@ -7,7 +7,7 @@ import { absolutePath, loadRepoManifest } from '../lib/repos.js';
 import { loadAlliesManifest } from '../lib/allies.js';
 import { runAdapter, runInteractiveAdapter } from '../lib/env.js';
 
-export type ChangelogPeriod = 'day' | 'week' | 'month';
+export type ChangelogPeriod = 'day' | 'week' | 'month' | 'lastSent';
 
 export type ChangelogEntry = {
   title: string;
@@ -51,11 +51,14 @@ export type ChangelogShareResult = {
   adapterCommand: string | null;
 };
 
-const PERIOD_DAYS: Record<ChangelogPeriod, number> = { day: 1, week: 7, month: 30 };
+// `lastSent` has no fixed window — its cutoff comes from the recorded send history.
+// The day count here is only a fallback for the first run before anything has been sent.
+const PERIOD_DAYS: Record<ChangelogPeriod, number> = { day: 1, week: 7, month: 30, lastSent: 7 };
 export const PERIOD_LABEL: Record<ChangelogPeriod, string> = {
   day: 'Daily Update',
   week: 'Weekly Update',
   month: 'Monthly Update',
+  lastSent: 'Latest Update',
 };
 
 function periodCutoff(period: ChangelogPeriod): Date {
@@ -89,9 +92,22 @@ export function recordChangelogShareSent(workspaceRoot: string, period: Changelo
   writeFileSync(stateFilePath(workspaceRoot), JSON.stringify({ ...current, lastSent }, null, 2));
 }
 
+// The most recent valid timestamp across every recorded period, or null if none exist.
+export function mostRecentLastSent(state: ChangelogShareState): Date | null {
+  let latest: Date | null = null;
+  for (const raw of Object.values(state.lastSent ?? {})) {
+    if (typeof raw !== 'string') continue;
+    const parsed = new Date(raw);
+    if (isNaN(parsed.getTime())) continue;
+    if (!latest || parsed > latest) latest = parsed;
+  }
+  return latest;
+}
+
 function resolveCutoff(workspaceRoot: string, period: ChangelogPeriod): { cutoff: Date; source: 'last-sent' | 'period-default' } {
   const state = loadChangelogShareState(workspaceRoot);
-  const lastSentRaw = state.lastSent?.[period];
+  // `lastSent` shares changes since the most recent send of any period.
+  const lastSentRaw = period === 'lastSent' ? mostRecentLastSent(state)?.toISOString() : state.lastSent?.[period];
   if (lastSentRaw) {
     const parsed = new Date(lastSentRaw);
     if (!isNaN(parsed.getTime())) return { cutoff: parsed, source: 'last-sent' };

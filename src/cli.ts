@@ -3185,9 +3185,9 @@ export function buildProgram(options: BuildProgramOptions = {}) {
   changelog
     .command('share')
     .description('Generate and distribute changelog updates to ally Slack channels.')
-    .option('--period <period>', 'Reporting period: day, week, or month. Prompted interactively if omitted.')
+    .option('--period <period>', 'Reporting period: day, week, month, or lastSent. Prompted interactively if omitted.')
     .action(async (opts: { period?: string }) => {
-      const validPeriods: ChangelogPeriod[] = ['day', 'week', 'month'];
+      const validPeriods: ChangelogPeriod[] = ['day', 'week', 'month', 'lastSent'];
 
       let result: ChangelogShareResult | null = null;
       let savedDraft = loadChangelogDraft(workspaceRoot);
@@ -3215,21 +3215,22 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         if (opts.period && (validPeriods as string[]).includes(opts.period)) {
           period = opts.period as ChangelogPeriod;
         } else if (opts.period) {
-          output(`Invalid period "${opts.period}". Must be day, week, or month.`);
+          output(`Invalid period "${opts.period}". Must be day, week, month, or lastSent.`);
           process.exitCode = 1;
           return;
         } else if (interactive) {
           period = await selectChoice<ChangelogPeriod>({
             output,
             input,
-            question: 'Select reporting period (day/week/month) [week]:',
+            question: 'Select reporting period (day/week/month/lastSent) [week]:',
             default: 'week',
             choices: [
               { label: 'Week', value: 'week' },
               { label: 'Day', value: 'day' },
               { label: 'Month', value: 'month' },
+              { label: 'Last sent', value: 'lastSent', aliases: ['lastsent', 'last-sent', 'last'] },
             ],
-            retryHelp: 'Enter day, week, or month, or press Enter for week.',
+            retryHelp: 'Enter day, week, month, or lastSent, or press Enter for week.',
           });
         } else {
           period = 'week';
@@ -3239,7 +3240,9 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         result = runChangelogShare(workspaceRoot, period);
         const cutoffLabel = result.cutoffSource === 'last-sent'
           ? `Cutoff: since last send at ${result.cutoff.toISOString()}.`
-          : `Cutoff: rolling ${PERIOD_LABEL[period].toLowerCase().replace(' update', '')} window starting ${result.cutoff.toISOString()} (no prior send recorded).`;
+          : period === 'lastSent'
+            ? `Cutoff: no prior send recorded — sharing the most recent changes starting ${result.cutoff.toISOString()}.`
+            : `Cutoff: rolling ${PERIOD_LABEL[period].toLowerCase().replace(' update', '')} window starting ${result.cutoff.toISOString()} (no prior send recorded).`;
         output(cutoffLabel);
       }
 

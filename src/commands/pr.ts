@@ -1950,15 +1950,20 @@ function quoteOriginalBody(body: string | undefined, author: string): string {
 
 function fallbackReviewThreadReplyBody(
   thread: MergeReadiness['unresolvedReviewThreads'][number],
-  commitSha: string,
+  commitSha: string | null,
   source: 'coderabbit' | 'human'
 ) {
   const line = thread.line === null ? '' : `:${thread.line}`;
   const label = source === 'coderabbit' ? 'CodeRabbit' : `@${thread.author}`;
-  const summary = [
-    `Change made: War Room committed the PR review updates in ${commitSha}.`,
-    `This reply is attached to the ${label} finding for ${thread.path}${line} so the review thread has an explicit audit trail.`,
-  ].join(' ');
+  const summary = commitSha
+    ? [
+        `Change made: War Room committed the PR review updates in ${commitSha}.`,
+        `This reply is attached to the ${label} finding for ${thread.path}${line} so the review thread has an explicit audit trail.`,
+      ].join(' ')
+    : [
+        `Skipped: War Room's review loop did not produce a code change for the ${label} finding on ${thread.path}${line}.`,
+        `Posting this reply so the thread has an explicit audit trail; re-open or comment again if follow-up work is needed.`,
+      ].join(' ');
   if (source !== 'human') return summary;
   const quote = quoteOriginalBody(thread.body, thread.author);
   return quote ? `${quote}${summary}` : summary;
@@ -1970,7 +1975,7 @@ function fallbackCodeRabbitReplyBody(thread: MergeReadiness['unresolvedReviewThr
 
 function postFallbackReviewThreadReplies(
   threads: MergeReadiness['unresolvedReviewThreads'],
-  commitSha: string,
+  commitSha: string | null,
   reviewStatus: ((message: string) => void) | undefined,
   source: 'coderabbit' | 'human'
 ) {
@@ -1996,10 +2001,13 @@ function postFallbackReviewThreadReplies(
     posted.push(reply.url ?? thread.threadId);
   }
   if (posted.length > 0) {
+    const context = commitSha
+      ? 'after publishing the review commit'
+      : 'with a Skipped note because no code change was produced for them';
     reviewStatus?.(
       `PR review loop: posted fallback ${label} replies to ${posted.length} review thread${
         posted.length === 1 ? '' : 's'
-      } after publishing the review commit.`
+      } ${context}.`
     );
   }
   return { posted, error: null };
@@ -2015,7 +2023,7 @@ function postFallbackCodeRabbitReplies(
 
 function postFallbackHumanThreadReplies(
   threads: MergeReadiness['unresolvedReviewThreads'],
-  commitSha: string,
+  commitSha: string | null,
   reviewStatus: ((message: string) => void) | undefined
 ) {
   return postFallbackReviewThreadReplies(threads, commitSha, reviewStatus, 'human');
@@ -2030,11 +2038,15 @@ function postPullRequestIssueComment(
 
 function fallbackHumanIssueCommentBody(comment: OutstandingHumanIssueComment, commitSha: string | null) {
   const original = comment.url ? ` (re: ${comment.url})` : '';
-  const sha = commitSha ? ` in ${commitSha}` : '';
-  const summary = [
-    `Change made: War Room committed the PR review updates${sha}.`,
-    `This reply addresses @${comment.author}'s PR comment${original} so the conversation has an explicit audit trail.`,
-  ].join(' ');
+  const summary = commitSha
+    ? [
+        `Change made: War Room committed the PR review updates in ${commitSha}.`,
+        `This reply addresses @${comment.author}'s PR comment${original} so the conversation has an explicit audit trail.`,
+      ].join(' ')
+    : [
+        `Skipped: War Room's review loop did not produce a code change for @${comment.author}'s PR comment${original}.`,
+        `Posting this reply so the conversation has an explicit audit trail; re-open or comment again if follow-up work is needed.`,
+      ].join(' ');
   const quote = quoteOriginalBody(comment.body, comment.author);
   return quote ? `${quote}${summary}` : summary;
 }
@@ -2057,10 +2069,13 @@ function postFallbackHumanIssueCommentReplies(
     posted.push(reply.url ?? comment.commentId ?? 'comment');
   }
   if (posted.length > 0) {
+    const context = commitSha
+      ? 'after publishing the review commit'
+      : 'with a Skipped note because no code change was produced for them';
     reviewStatus?.(
       `PR review loop: posted fallback PR comment replies to ${posted.length} human PR comment${
         posted.length === 1 ? '' : 's'
-      } after publishing the review commit.`
+      } ${context}.`
     );
   }
   return { posted, error: null };
@@ -5297,7 +5312,7 @@ For CodeRabbit threads, you may optionally add a 👀 reaction as a progress mar
 
 If adding the reaction is blocked, cancelled, unsupported, or unauthenticated, skip the reaction and continue. Do not stop before code changes only because the reaction could not be added. War Room will swap any 👀 on CodeRabbit threads for a 👍 on loop completion as well, so you do not need to add 👍 yourself.
 
-Next, review the feedback and grill-me for additional context to complete the work. If a code change is required, implement the update in the checked-out PR branch.
+Next, review the feedback. You are running non-interactively (claude --print / codex exec), so there is no human to interview — never block waiting for clarification or attempt the grill-me interview here. Gather any context you need directly from the repo and from GitHub, then use your best judgment. If a code change is required, implement the update in the checked-out PR branch. If the ask is out of scope for this PR, underspecified, or otherwise needs no code change here, do NOT end without replying — post a "Skipped:" reply (per the format below) explaining why, or what additional context/decision is still needed.
 
 For code changes, commit the changes before posting final replies so the reply can name the commit SHA. If no code change is required, do not create an empty commit; use a Skipped reply.
 
@@ -5730,9 +5745,11 @@ function ensureRepliesPosted(
     }
   }
 
-  // Human review threads
+  // Human review threads — post a fallback reply even when no commit was made. For human
+  // feedback "out of scope / no change needed" is a legitimate outcome, so a Skipped note
+  // keeps the thread answered and lets the loop complete instead of hard-blocking.
   let missingHumanThreads = listReviewThreadsMissingReplies(ref, humanThreads);
-  if (missingHumanThreads.length > 0 && commitSha) {
+  if (missingHumanThreads.length > 0) {
     const fallback = postFallbackHumanThreadReplies(missingHumanThreads, commitSha, reviewStatus);
     if (fallback.error) return { error: fallback.error };
     missingHumanThreads = listReviewThreadsMissingReplies(ref, humanThreads);
@@ -5745,9 +5762,9 @@ function ensureRepliesPosted(
     }
   }
 
-  // Human PR conversation comments
+  // Human PR conversation comments — same no-commit fallback as human review threads.
   let missingHumanComments = listOutstandingHumanIssueCommentsMissingReplies(ref, humanComments);
-  if (missingHumanComments.length > 0 && commitSha) {
+  if (missingHumanComments.length > 0) {
     const fallback = postFallbackHumanIssueCommentReplies(ref, missingHumanComments, commitSha, reviewStatus);
     if (fallback.error) return { error: fallback.error };
     missingHumanComments = listOutstandingHumanIssueCommentsMissingReplies(ref, humanComments);
@@ -5760,29 +5777,15 @@ function ensureRepliesPosted(
     }
   }
 
-  // If no commit was made but items remain unreplied, surface the blocker.
-  if (!commitSha) {
-    if (missingCodeRabbit.length > 0) {
-      return {
-        error: `LLM adapter did not post final replies to ${missingCodeRabbit.length} CodeRabbit review thread${
-          missingCodeRabbit.length === 1 ? '' : 's'
-        }: ${missingCodeRabbit.map((thread) => thread.url ?? thread.threadId ?? thread.path).join(', ')}`,
-      };
-    }
-    if (missingHumanThreads.length > 0) {
-      return {
-        error: `LLM adapter did not post final replies to ${missingHumanThreads.length} human review thread${
-          missingHumanThreads.length === 1 ? '' : 's'
-        }: ${missingHumanThreads.map((thread) => thread.url ?? thread.threadId ?? thread.path).join(', ')}`,
-      };
-    }
-    if (missingHumanComments.length > 0) {
-      return {
-        error: `LLM adapter did not post final replies to ${missingHumanComments.length} human PR comment${
-          missingHumanComments.length === 1 ? '' : 's'
-        }: ${missingHumanComments.map((entry) => entry.url ?? entry.commentId ?? entry.author).join(', ')}`,
-      };
-    }
+  // CodeRabbit findings almost always require a code change, so a missing reply with no commit
+  // means the adapter did not do the work — surface it as a blocker rather than auto-acknowledging.
+  // Human threads/comments are already handled by the fallbacks above (commit or no commit).
+  if (!commitSha && missingCodeRabbit.length > 0) {
+    return {
+      error: `LLM adapter did not post final replies to ${missingCodeRabbit.length} CodeRabbit review thread${
+        missingCodeRabbit.length === 1 ? '' : 's'
+      }: ${missingCodeRabbit.map((thread) => thread.url ?? thread.threadId ?? thread.path).join(', ')}`,
+    };
   }
 
   return { error: null };

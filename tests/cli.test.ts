@@ -1780,6 +1780,55 @@ describe('phase-1 CLI', () => {
     }
   });
 
+  it('posts a no-commit Skipped fallback for an unanswered human PR comment and completes the loop', async () => {
+    const root = makeDevFixture();
+    const bin = path.join(root, 'bin');
+    const stateFile = path.join(root, 'review-state.txt');
+    const commentLog = path.join(root, 'pr-comment-replies.jsonl');
+    mkdirSync(bin, { recursive: true });
+    writePrReviewLoopGhFixture(bin, stateFile, {
+      queue: 'multi',
+      outstandingFirst: false,
+      humanPrComment: true,
+      commentLog,
+    });
+    writePrReviewLoopCodexFixture(bin, stateFile);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    const restorePrReviewEnv = setFastPrReviewPolling();
+
+    try {
+      const lines: string[] = [];
+      const program = buildProgram({ cwd: root, output: (line) => lines.push(line) });
+
+      await program.parseAsync(['node', 'warroom', 'pr', 'review', '--pr', 'TeamFloPay/sdk#12', '--launch']);
+
+      // The adapter made no commit and left the human PR comment unanswered; War Room must
+      // post a Skipped fallback (no commit SHA) instead of hard-blocking.
+      expect(
+        lines.some((line) =>
+          line.includes(
+            'PR review loop: posted fallback PR comment replies to 1 human PR comment with a Skipped note because no code change was produced for them.'
+          )
+        )
+      ).toBe(true);
+      expect(
+        lines.some((line) => line.includes('all human review feedback addressed with replies; no code changes needed'))
+      ).toBe(true);
+      expect(lines).not.toContain('PR review loop: failed');
+      expect(lines.some((line) => line.includes('did not post final replies'))).toBe(false);
+
+      const replies = readFileSync(commentLog, 'utf8').trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(replies).toHaveLength(1);
+      expect(replies[0].body.startsWith('Skipped:') || replies[0].body.includes('\nSkipped:')).toBe(true);
+      expect(replies[0].body).toContain('#issuecomment-9001');
+    } finally {
+      restorePrReviewEnv();
+      process.env.PATH = originalPath;
+    }
+  });
+
   it('waits for delayed CodeRabbit feedback before closing the review loop', async () => {
     const root = makeDevFixture();
     const bin = path.join(root, 'bin');
@@ -5329,6 +5378,8 @@ function writePrReviewLoopGhFixture(
     initialCodeRabbitPending?: boolean;
     replyAfterFix?: boolean;
     replyLog?: string;
+    humanPrComment?: boolean;
+    commentLog?: string;
   }
 ) {
   const ghPath = path.join(bin, 'gh');
@@ -5614,8 +5665,36 @@ if (args[0] === 'api' && args[1] === 'graphql') {
     process.exit(0);
   }
 
-  if (query.includes('pullRequest') && query.includes('comments(first: 100)')) {
-    json({ data: { repository: { pullRequest: { comments: { nodes: [] } } } } });
+  if (query.includes('pullRequest') && query.includes('comments(first: 100, after')) {
+    if (!options.humanPrComment) {
+      json({ data: { repository: { pullRequest: { comments: { nodes: [] } } } } });
+      process.exit(0);
+    }
+    const humanComment = {
+      id: 'IC_fixture_human_1',
+      body: 'Please confirm the rollout plan for the new env var before merge.',
+      url: 'https://github.com/TeamFloPay/sdk/pull/12#issuecomment-9001',
+      createdAt: '2026-05-06T11:00:00Z',
+      author: { __typename: 'User', login: 'andyslack' }
+    };
+    let postedReplies = [];
+    if (options.commentLog) {
+      try {
+        postedReplies = readFileSync(options.commentLog, 'utf8')
+          .split(/\\r?\\n/)
+          .filter(Boolean)
+          .map((line, index) => ({
+            id: 'IC_fixture_reply_' + index,
+            body: JSON.parse(line).body,
+            url: 'https://github.com/TeamFloPay/sdk/pull/12#issuecomment-' + (9100 + index),
+            createdAt: '2026-05-06T11:30:00Z',
+            author: { __typename: 'User', login: 'andrewslack' }
+          }));
+      } catch {
+        postedReplies = [];
+      }
+    }
+    json({ data: { repository: { pullRequest: { comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [humanComment, ...postedReplies] } } } } });
     process.exit(0);
   }
 
@@ -5698,6 +5777,12 @@ if (args[0] === 'project' && args[1] === 'field-list') {
 }
 
 if (args[0] === 'project' && args[1] === 'item-edit') {
+  process.exit(0);
+}
+
+if (args[0] === 'pr' && args[1] === 'comment') {
+  if (options.commentLog) appendFileSync(options.commentLog, JSON.stringify({ body: optionValue('--body') }) + '\\n');
+  process.stdout.write('https://github.com/TeamFloPay/sdk/pull/12#issuecomment-fallback-posted\\n');
   process.exit(0);
 }
 

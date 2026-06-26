@@ -3024,7 +3024,7 @@ function generatePrText(
     return {
       title: null,
       body: null,
-      adapterCommand: adapterCommand ?? getAdapterInvocation(workspaceRoot, repoPath).display,
+      adapterCommand: adapterCommand ?? getAdapterInvocation(workspaceRoot, repoPath, { action: 'pr-create' }).display,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -5085,7 +5085,7 @@ export function runIssueStart(workspaceRoot: string, options: PrOptions): PrPlan
   const crossRepoImplementation = implementationRepo !== ref.repo;
   const featureBranch = featureBranchForIssue(ref, title);
   const adapterCwd = repoWorkspaceForGitHub(workspaceRoot, implementationRepo);
-  const adapterInvocation = getAdapterInvocation(workspaceRoot, adapterCwd);
+  const adapterInvocation = getAdapterInvocation(workspaceRoot, adapterCwd, { action: 'issue-next' });
   const developmentBranch = createDevelopmentBranchResult(
     workspaceRoot,
     ref,
@@ -5822,7 +5822,7 @@ export async function runPrReview(workspaceRoot: string, options: PrOptions): Pr
       })
     : null;
   const adapterCwd = repoWorkspaceForGitHub(workspaceRoot, ref.repo);
-  const adapterCommand = getAdapterInvocation(workspaceRoot, adapterCwd).display;
+  const adapterCommand = getAdapterInvocation(workspaceRoot, adapterCwd, { action: 'pr-review' }).display;
   const campaignStatus = issueRef
     ? setCampaignStatus(issueRef, 'skirmish', { confirm: options.confirmStatus })
     : null;

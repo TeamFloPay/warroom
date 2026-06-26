@@ -47,10 +47,15 @@ export type AdapterRunOptions = {
   outputLastMessagePath?: string;
   captureStdout?: boolean;
   usage?: LlmUsageContext;
+  action?: string;
   // Short, human-readable label describing what this launch is for (e.g.
   // "diff chunk 2/5"). Surfaced in the "Launching adapter" log so a sequence
   // of calls reads as progress instead of an accidental loop.
   stageLabel?: string;
+};
+
+export type AdapterInvocationOptions = {
+  action?: string;
 };
 
 const PROMPT_VISIBLE_ENV_KEYS = ['SENTRY_AUTH_TOKEN', 'SENTRY_ORG'] as const;
@@ -81,6 +86,79 @@ function parseEnvValue(raw: string) {
 
 function readEnvMap(filePath: string) {
   return existsSync(filePath) ? parseEnv(readFileSync(filePath, 'utf8')) : new Map<string, string>();
+}
+
+function actionEnvSuffix(action: string | undefined) {
+  const suffix = action
+    ?.trim()
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+  return suffix || null;
+}
+
+function uniqueKeys(keys: Array<string | null | undefined>) {
+  return Array.from(new Set(keys.filter((key): key is string => Boolean(key))));
+}
+
+function envValue(
+  local: Map<string, string>,
+  example: Map<string, string>,
+  keys: string[],
+  fallback: string | null
+) {
+  for (const key of keys) {
+    const value = local.get(key) ?? example.get(key);
+    if (value !== undefined) return value;
+  }
+  return fallback;
+}
+
+function scopedSettingKeys(providerPrefix: string, modePrefix: string, setting: string, actionSuffix: string | null) {
+  return uniqueKeys([
+    actionSuffix && modePrefix !== providerPrefix ? `${modePrefix}_${actionSuffix}_${setting}` : null,
+    actionSuffix ? `${providerPrefix}_${actionSuffix}_${setting}` : null,
+    modePrefix !== providerPrefix ? `${modePrefix}_${setting}` : null,
+    `${providerPrefix}_${setting}`,
+  ]);
+}
+
+function adapterEnvValue(local: Map<string, string>, example: Map<string, string>, action: string | undefined) {
+  const suffix = actionEnvSuffix(action);
+  return envValue(local, example, suffix ? [`LLM_ADAPTER_${suffix}`, 'LLM_ADAPTER'] : ['LLM_ADAPTER'], 'codex') ?? 'codex';
+}
+
+function isAdapterSupported(adapter: string | null) {
+  return adapter === 'codex' || adapter === 'codex-cloud' || adapter === 'claude';
+}
+
+function adapterOverrideValues(local: Map<string, string>, example: Map<string, string>) {
+  const values = new Map<string, string>();
+  for (const [key, value] of example) {
+    if (/^LLM_ADAPTER_[A-Z0-9_]+$/i.test(key)) values.set(key, value);
+  }
+  for (const [key, value] of local) {
+    if (/^LLM_ADAPTER_[A-Z0-9_]+$/i.test(key)) values.set(key, value);
+  }
+  return values;
+}
+
+function providerCommand(
+  local: Map<string, string>,
+  example: Map<string, string>,
+  providerPrefix: 'CODEX' | 'CLAUDE',
+  action: string | undefined,
+  fallback: string
+) {
+  const suffix = actionEnvSuffix(action);
+  return (
+    envValue(
+      local,
+      example,
+      suffix ? [`${providerPrefix}_${suffix}_COMMAND`, `${providerPrefix}_COMMAND`] : [`${providerPrefix}_COMMAND`],
+      fallback
+    ) ?? fallback
+  );
 }
 
 function localProcessEnv(workspaceRoot: string) {
@@ -129,11 +207,12 @@ function promptWithAdapterRuntimeNote(workspaceRoot: string, prompt: string, con
   return [header, prompt, note].filter((section): section is string => Boolean(section)).join('\n\n');
 }
 
-function codexModelArgs(local: Map<string, string>, example: Map<string, string>, prefix = 'CODEX') {
-  const model = local.get(`${prefix}_MODEL`) ?? example.get(`${prefix}_MODEL`) ?? local.get('CODEX_MODEL') ?? example.get('CODEX_MODEL') ?? 'gpt-5.5';
+function codexModelArgs(local: Map<string, string>, example: Map<string, string>, prefix = 'CODEX', action?: string) {
+  const suffix = actionEnvSuffix(action);
+  const model = envValue(local, example, scopedSettingKeys('CODEX', prefix, 'MODEL', suffix), 'gpt-5.5') ?? 'gpt-5.5';
   const reasoningEffort =
-    local.get(`${prefix}_REASONING_EFFORT`) ?? example.get(`${prefix}_REASONING_EFFORT`) ?? local.get('CODEX_REASONING_EFFORT') ?? example.get('CODEX_REASONING_EFFORT') ?? 'xhigh';
-  const fastMode = local.get(`${prefix}_FAST_MODE`) ?? example.get(`${prefix}_FAST_MODE`) ?? local.get('CODEX_FAST_MODE') ?? example.get('CODEX_FAST_MODE') ?? 'false';
+    envValue(local, example, scopedSettingKeys('CODEX', prefix, 'REASONING_EFFORT', suffix), 'xhigh') ?? 'xhigh';
+  const fastMode = envValue(local, example, scopedSettingKeys('CODEX', prefix, 'FAST_MODE', suffix), 'false') ?? 'false';
   return [
     '--model',
     model,
@@ -143,25 +222,27 @@ function codexModelArgs(local: Map<string, string>, example: Map<string, string>
   ];
 }
 
-function claudeEnvValue(
-  local: Map<string, string>,
-  example: Map<string, string>,
-  key: string,
-  fallback: string
-) {
-  return local.get(key) ?? example.get(key) ?? fallback;
-}
-
-function claudeModel(local: Map<string, string>, example: Map<string, string>) {
-  return claudeEnvValue(local, example, 'CLAUDE_MODEL', 'claude-sonnet-4-6');
+function claudeModel(local: Map<string, string>, example: Map<string, string>, modePrefix = 'CLAUDE', action?: string) {
+  const suffix = actionEnvSuffix(action);
+  return envValue(local, example, scopedSettingKeys('CLAUDE', modePrefix, 'MODEL', suffix), 'claude-sonnet-4-6') ?? 'claude-sonnet-4-6';
 }
 
 function claudePermissionMode(
   local: Map<string, string>,
   example: Map<string, string>,
-  key: 'CLAUDE_PERMISSION_MODE' | 'CLAUDE_INTERACTIVE_PERMISSION_MODE'
+  key: 'CLAUDE_PERMISSION_MODE' | 'CLAUDE_INTERACTIVE_PERMISSION_MODE',
+  action?: string
 ) {
-  return claudeEnvValue(local, example, key, 'acceptEdits');
+  const suffix = actionEnvSuffix(action);
+  const keys =
+    key === 'CLAUDE_INTERACTIVE_PERMISSION_MODE'
+      ? uniqueKeys([
+          suffix ? `CLAUDE_INTERACTIVE_${suffix}_PERMISSION_MODE` : null,
+          suffix ? `CLAUDE_${suffix}_PERMISSION_MODE` : null,
+          'CLAUDE_INTERACTIVE_PERMISSION_MODE',
+        ])
+      : uniqueKeys([suffix ? `CLAUDE_${suffix}_PERMISSION_MODE` : null, 'CLAUDE_PERMISSION_MODE']);
+  return envValue(local, example, keys, 'acceptEdits') ?? 'acceptEdits';
 }
 
 export function readWorkspaceEnvVar(workspaceRoot: string, key: string): string | null {
@@ -178,12 +259,19 @@ export function getEnvStatus(workspaceRoot: string): EnvStatus {
   const example = readEnvMap(examplePath);
   const local = readEnvMap(localPath);
   const adapter = local.get('LLM_ADAPTER') ?? example.get('LLM_ADAPTER') ?? null;
-  const adapterSupported = adapter === 'codex' || adapter === 'codex-cloud' || adapter === 'claude';
+  const adapterOverrides = adapterOverrideValues(local, example);
+  const adapterSupported = isAdapterSupported(adapter) && Array.from(adapterOverrides.values()).every(isAdapterSupported);
 
   if (!localExists) notes.push('.env.local is optional but needed before launching LLM adapters.');
   if (!adapterSupported) notes.push('LLM_ADAPTER should be codex or claude. Legacy codex-cloud is treated as codex.');
   if (adapter === 'codex-cloud') {
     notes.push('LLM_ADAPTER=codex-cloud is deprecated; War Room will run codex locally with codex exec. Set LLM_ADAPTER=codex to remove this note.');
+  }
+  for (const [key, value] of adapterOverrides) {
+    if (!isAdapterSupported(value)) notes.push(`${key} should be codex or claude. Legacy codex-cloud is treated as codex.`);
+    if (value === 'codex-cloud') {
+      notes.push(`${key}=codex-cloud is deprecated; War Room will run codex locally with codex exec. Set ${key}=codex to remove this note.`);
+    }
   }
 
   return {
@@ -200,16 +288,16 @@ export function getAdapterCommand(workspaceRoot: string) {
   return getAdapterInvocation(workspaceRoot, workspaceRoot).display;
 }
 
-export function getAdapterInvocation(workspaceRoot: string, cwd = workspaceRoot): AdapterInvocation {
+export function getAdapterInvocation(workspaceRoot: string, cwd = workspaceRoot, options: AdapterInvocationOptions = {}): AdapterInvocation {
   const examplePath = path.join(workspaceRoot, '.env.local.example');
   const localPath = path.join(workspaceRoot, '.env.local');
   const example = readEnvMap(examplePath);
   const local = readEnvMap(localPath);
-  const adapter = local.get('LLM_ADAPTER') ?? example.get('LLM_ADAPTER') ?? 'codex';
+  const adapter = adapterEnvValue(local, example, options.action);
   if (adapter === 'claude') {
-    const command = local.get('CLAUDE_COMMAND') ?? example.get('CLAUDE_COMMAND') ?? 'claude';
-    const model = claudeModel(local, example);
-    const permissionMode = claudePermissionMode(local, example, 'CLAUDE_PERMISSION_MODE');
+    const command = providerCommand(local, example, 'CLAUDE', options.action, 'claude');
+    const model = claudeModel(local, example, 'CLAUDE', options.action);
+    const permissionMode = claudePermissionMode(local, example, 'CLAUDE_PERMISSION_MODE', options.action);
     const args = [
       '--print',
       '--output-format',
@@ -229,22 +317,27 @@ export function getAdapterInvocation(workspaceRoot: string, cwd = workspaceRoot)
     };
   }
 
-  const command = local.get('CODEX_COMMAND') ?? example.get('CODEX_COMMAND') ?? 'codex';
-  const modelArgs = codexModelArgs(local, example);
+  const command = providerCommand(local, example, 'CODEX', options.action, 'codex');
+  const modelArgs = codexModelArgs(local, example, 'CODEX', options.action);
   const args = ['exec', ...modelArgs, '--cd', cwd, '-'];
   return { command, args, display: [command, ...args].join(' '), cwd, mode: 'foreground', adapter: 'codex' };
 }
 
-export function getInteractiveAdapterInvocation(workspaceRoot: string, cwd = workspaceRoot, prompt = '<prompt>'): AdapterInvocation {
+export function getInteractiveAdapterInvocation(
+  workspaceRoot: string,
+  cwd = workspaceRoot,
+  prompt = '<prompt>',
+  options: AdapterInvocationOptions = {}
+): AdapterInvocation {
   const examplePath = path.join(workspaceRoot, '.env.local.example');
   const localPath = path.join(workspaceRoot, '.env.local');
   const example = readEnvMap(examplePath);
   const local = readEnvMap(localPath);
-  const adapter = local.get('LLM_ADAPTER') ?? example.get('LLM_ADAPTER') ?? 'codex';
+  const adapter = adapterEnvValue(local, example, options.action);
   if (adapter === 'claude') {
-    const command = local.get('CLAUDE_COMMAND') ?? example.get('CLAUDE_COMMAND') ?? 'claude';
-    const model = claudeModel(local, example);
-    const permissionMode = claudePermissionMode(local, example, 'CLAUDE_INTERACTIVE_PERMISSION_MODE');
+    const command = providerCommand(local, example, 'CLAUDE', options.action, 'claude');
+    const model = claudeModel(local, example, 'CLAUDE_INTERACTIVE', options.action);
+    const permissionMode = claudePermissionMode(local, example, 'CLAUDE_INTERACTIVE_PERMISSION_MODE', options.action);
     const args = ['--model', model, '--permission-mode', permissionMode, prompt];
     return {
       command,
@@ -256,10 +349,13 @@ export function getInteractiveAdapterInvocation(workspaceRoot: string, cwd = wor
     };
   }
 
-  const command = local.get('CODEX_COMMAND') ?? example.get('CODEX_COMMAND') ?? 'codex';
-  const sandbox = local.get('CODEX_INTERACTIVE_SANDBOX') ?? example.get('CODEX_INTERACTIVE_SANDBOX') ?? 'workspace-write';
-  const networkAccess = local.get('CODEX_INTERACTIVE_NETWORK_ACCESS') ?? example.get('CODEX_INTERACTIVE_NETWORK_ACCESS') ?? 'true';
-  const modelArgs = codexModelArgs(local, example, 'CODEX_INTERACTIVE');
+  const suffix = actionEnvSuffix(options.action);
+  const command = providerCommand(local, example, 'CODEX', options.action, 'codex');
+  const sandbox =
+    envValue(local, example, scopedSettingKeys('CODEX', 'CODEX_INTERACTIVE', 'SANDBOX', suffix), 'workspace-write') ?? 'workspace-write';
+  const networkAccess =
+    envValue(local, example, scopedSettingKeys('CODEX', 'CODEX_INTERACTIVE', 'NETWORK_ACCESS', suffix), 'true') ?? 'true';
+  const modelArgs = codexModelArgs(local, example, 'CODEX_INTERACTIVE', options.action);
   const networkArgs = networkAccess === 'false' ? [] : ['-c', 'sandbox_workspace_write.network_access=true'];
   const args = [...modelArgs, '--sandbox', sandbox, ...networkArgs, '--cd', cwd, prompt];
   return {
@@ -287,7 +383,8 @@ function withClaudeOutputFormat(invocation: AdapterInvocation, format: 'json' | 
 
 export function runAdapter(workspaceRoot: string, prompt: string, options: AdapterRunOptions = {}): AdapterRunResult {
   const adapterPrompt = promptWithAdapterRuntimeNote(workspaceRoot, prompt, options.usage);
-  const baseInvocation = getAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot);
+  const action = options.action ?? options.usage?.command;
+  const baseInvocation = getAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot, { action });
   const captureStdout = options.captureStdout === true;
   const formatInvocation = captureStdout ? baseInvocation : withClaudeOutputFormat(baseInvocation, 'stream-json');
   const invocation = withLastMessageOutput(formatInvocation, options.outputLastMessagePath);
@@ -564,7 +661,8 @@ function runInteractiveAdapterProcess(invocation: AdapterInvocation, env: NodeJS
 
 export function runInteractiveAdapter(workspaceRoot: string, prompt: string, options: AdapterRunOptions = {}): AdapterRunResult {
   const adapterPrompt = promptWithAdapterRuntimeNote(workspaceRoot, prompt, options.usage);
-  const invocation = getInteractiveAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot, adapterPrompt);
+  const action = options.action ?? options.usage?.command;
+  const invocation = getInteractiveAdapterInvocation(workspaceRoot, options.cwd ?? workspaceRoot, adapterPrompt, { action });
   const stageSuffix = options.stageLabel ? ` (${options.stageLabel})` : '';
   process.stderr.write(`Launching interactive adapter${stageSuffix}: ${invocation.display}\n`);
   const result = runInteractiveAdapterProcess(invocation, {

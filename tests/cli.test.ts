@@ -2032,6 +2032,64 @@ describe('phase-1 CLI', () => {
     expect(invocation.display).toBe(`codex --model gpt-5.4 -c model_reasoning_effort="high" --sandbox danger-full-access --cd ${root} <prompt>`);
   });
 
+  it('uses action-specific adapter overrides before the global adapter default', () => {
+    const root = makeDevFixture();
+    writeFileSync(
+      path.join(root, '.env.local'),
+      [
+        'LLM_ADAPTER=claude',
+        'CLAUDE_COMMAND=claude',
+        'LLM_ADAPTER_ISSUE_TRIAGE=codex',
+        'CODEX_COMMAND=codex',
+        'CODEX_INTERACTIVE_ISSUE_TRIAGE_MODEL=gpt-5.6',
+        'CODEX_INTERACTIVE_ISSUE_TRIAGE_REASONING_EFFORT=high',
+        'CODEX_INTERACTIVE_ISSUE_TRIAGE_FAST_MODE=true',
+        'CODEX_INTERACTIVE_ISSUE_TRIAGE_SANDBOX=danger-full-access',
+        'CODEX_INTERACTIVE_ISSUE_TRIAGE_NETWORK_ACCESS=false',
+        '',
+      ].join('\n')
+    );
+
+    const triage = getInteractiveAdapterInvocation(root, root, 'prompt', { action: 'issue-triage' });
+    expect(triage.adapter).toBe('codex');
+    expect(triage.args).toEqual([
+      '--model',
+      'gpt-5.6',
+      '-c',
+      'model_reasoning_effort="high"',
+      '--sandbox',
+      'danger-full-access',
+      '--cd',
+      root,
+      'prompt',
+    ]);
+
+    const defaultInvocation = getInteractiveAdapterInvocation(root, root, 'prompt', { action: 'issue-next' });
+    expect(defaultInvocation.adapter).toBe('claude');
+    expect(defaultInvocation.display).toBe('claude --model claude-sonnet-4-6 --permission-mode acceptEdits <prompt>');
+  });
+
+  it('prioritizes action-scoped model settings before mode and provider defaults', () => {
+    const root = makeDevFixture();
+    writeFileSync(
+      path.join(root, '.env.local'),
+      [
+        'LLM_ADAPTER=codex',
+        'CODEX_COMMAND=codex',
+        'CODEX_MODEL=gpt-provider-default',
+        'CODEX_INTERACTIVE_MODEL=gpt-interactive-default',
+        'CODEX_ISSUE_TRIAGE_MODEL=gpt-action-default',
+        '',
+      ].join('\n')
+    );
+
+    const triage = getInteractiveAdapterInvocation(root, root, 'prompt', { action: 'issue-triage' });
+    expect(triage.args.slice(0, 2)).toEqual(['--model', 'gpt-action-default']);
+
+    const next = getInteractiveAdapterInvocation(root, root, 'prompt', { action: 'issue-next' });
+    expect(next.args.slice(0, 2)).toEqual(['--model', 'gpt-interactive-default']);
+  });
+
   it('builds foreground Claude invocation with print/json/model/permission flags', () => {
     const root = makeDevFixture();
     writeFileSync(path.join(root, '.env.local'), 'LLM_ADAPTER=claude\nCLAUDE_COMMAND=claude\n');
@@ -2071,6 +2129,43 @@ describe('phase-1 CLI', () => {
       'prompt',
     ]);
     expect(invocation.display).toBe('claude --model claude-opus-4-7 --permission-mode bypassPermissions <prompt>');
+  });
+
+  it('infers adapter override action from usage metadata during interactive launches', () => {
+    const root = makeDevFixture();
+    const promptCapturePath = path.join(root, 'interactive-action-prompt.txt');
+    const adapterPath = path.join(root, 'fake-codex');
+    writeFileSync(
+      adapterPath,
+      '#!/bin/sh\nlast=""\nfor arg in "$@"; do last="$arg"; done\nprintf "%s" "$last" > "$WARROOM_PROMPT_CAPTURE_PATH"\nexit 0\n'
+    );
+    chmodSync(adapterPath, 0o755);
+    writeFileSync(
+      path.join(root, '.env.local'),
+      [
+        'LLM_ADAPTER=claude',
+        'CLAUDE_COMMAND=warroom-nonexistent-claude',
+        'LLM_ADAPTER_ISSUE_TRIAGE=codex',
+        `CODEX_COMMAND=${adapterPath}`,
+        `WARROOM_PROMPT_CAPTURE_PATH=${promptCapturePath}`,
+        '',
+      ].join('\n')
+    );
+
+    const result = runInteractiveAdapter(root, 'interactive prompt', {
+      cwd: root,
+      usage: {
+        issue: 'TeamFloPay/sdk#4',
+        command: 'issue-triage',
+        stage: 'interactive-triage',
+        repo: 'TeamFloPay/sdk',
+        commandRunId: 'action-override-fixture',
+      },
+    });
+
+    expect(result.launched).toBe(true);
+    expect(result.invocation.adapter).toBe('codex');
+    expect(readFileSync(promptCapturePath, 'utf8')).toContain('interactive prompt');
   });
 
   it('resolves a bare CLAUDE_COMMAND from inherited PATH without going through a login shell', () => {

@@ -513,7 +513,7 @@ function generateCommitSummary(
   } catch (error) {
     return {
       summary: fallbackCommitSummary(result),
-      adapterCommand: adapterCommand ?? getAdapterInvocation(workspaceRoot, result.path).display,
+      adapterCommand: adapterCommand ?? getAdapterInvocation(workspaceRoot, result.path, { action: 'commit-create' }).display,
       error: error instanceof Error ? error.message : String(error),
     };
   }

@@ -1055,7 +1055,7 @@ export function runIssueCreate(workspaceRoot: string, options: IssueCreateOption
       prompt,
       artifactContext?.artifact ?? null,
       artifactContext?.draftPath ?? null,
-      getInteractiveAdapterInvocation(workspaceRoot, workspaceRoot).display,
+      getInteractiveAdapterInvocation(workspaceRoot, workspaceRoot, '<prompt>', { action: 'issue-create' }).display,
       false,
       null,
       directDraft.draft,
@@ -1065,7 +1065,7 @@ export function runIssueCreate(workspaceRoot: string, options: IssueCreateOption
     return options.confirm && result.draft ? createIssueFromDraft(workspaceRoot, result) : result;
   }
 
-  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, workspaceRoot).display;
+  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, workspaceRoot, '<prompt>', { action: 'issue-create' }).display;
   if (!shouldLaunch) {
     return emptyIssueCreateResult(prompt, artifactContext?.artifact ?? null, artifactContext?.draftPath ?? null, adapterCommand, false, null, null, null);
   }
@@ -1115,7 +1115,7 @@ export function runIssueTriage(workspaceRoot: string, options: IssueTriageOption
       })
     : null;
   const adapterCwd = repoWorkspaceForGitHub(workspaceRoot, ref.repo);
-  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, adapterCwd).display;
+  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, adapterCwd, '<prompt>', { action: 'issue-triage' }).display;
   const contextSummary = { promptCharacters: prompt.length };
   const shouldMarkReady = options.markReady === true;
   const commandRunId = createUsageCommandRunId('issue-triage');
@@ -1537,7 +1537,7 @@ function runAdapterFeedback(
   const postedAt = new Date();
   const prompt = buildFeedbackPrompt(workspaceRoot, ref, prRef, postedAt);
   const adapterCwd = repoWorkspaceForGitHub(workspaceRoot, prRef?.repo ?? ref.repo);
-  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, adapterCwd).display;
+  const adapterCommand = getInteractiveAdapterInvocation(workspaceRoot, adapterCwd, '<prompt>', { action: 'issue-feedback' }).display;
   const contextSummary = {
     promptCharacters: prompt.length,
     feedbackCharacters: null,

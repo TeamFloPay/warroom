@@ -164,7 +164,7 @@ export function runChangelogCreate(workspaceRoot: string, options: ChangelogCrea
   }
 
   const version = repo.checkedOut ? readPackageVersions(repo.resolvedPath)[0]?.version ?? null : null;
-  const adapterCommand = repo.checkedOut ? getAdapterInvocation(workspaceRoot, repo.resolvedPath).display : null;
+  const adapterCommand = repo.checkedOut ? getAdapterInvocation(workspaceRoot, repo.resolvedPath, { action: 'changelog-create' }).display : null;
 
   const baseResult: ChangelogCreateResult = {
     status: 'planned',

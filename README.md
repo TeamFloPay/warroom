@@ -74,6 +74,30 @@ npm run warroom -- issue create
 npm run warroom -- issue next
 ```
 
+## LLM Adapter Configuration
+
+War Room reads `.env.local` first, then falls back to `.env.local.example`. `LLM_ADAPTER` is the default adapter for every LLM handoff:
+
+```dotenv
+LLM_ADAPTER=claude
+CLAUDE_MODEL=claude-sonnet-4-7
+```
+
+Override a single action with `LLM_ADAPTER_<ACTION>`, where the action name is uppercased and dashes become underscores. Provider settings follow the same suffix convention:
+
+```dotenv
+# Use Claude by default, but Codex for warroom issue triage.
+LLM_ADAPTER=claude
+LLM_ADAPTER_ISSUE_TRIAGE=codex
+
+CODEX_INTERACTIVE_ISSUE_TRIAGE_MODEL=gpt-5.5
+CODEX_INTERACTIVE_ISSUE_TRIAGE_REASONING_EFFORT=xhigh
+CODEX_INTERACTIVE_ISSUE_TRIAGE_SANDBOX=workspace-write
+CODEX_INTERACTIVE_ISSUE_TRIAGE_NETWORK_ACCESS=true
+```
+
+For provider settings, War Room resolves from most specific to least specific: mode + action (`CODEX_INTERACTIVE_ISSUE_TRIAGE_MODEL`), provider + action (`CODEX_ISSUE_TRIAGE_MODEL`), mode default (`CODEX_INTERACTIVE_MODEL`), then provider default (`CODEX_MODEL`). The same action suffix works for other adapter-backed commands such as `issue-create`, `issue-feedback`, `issue-next`, `pr-create`, `pr-review`, `pr-merge`, `commit-create`, `changelog-create`, and `changelog-share`.
+
 In an interactive terminal, `issue next` prints numbered ready issues and lets you choose one to start implementation. From a mapped child repo checkout, the list is scoped to that repo by default; add `--all` to show the cross-repo queue. War Room normally creates and checks out a GitHub-linked development branch with `gh issue develop`, moves the selected issue to `battlefield-active`, replaces its workflow label, and runs the configured foreground LLM adapter from the owning child repo. For Codex this is `codex exec`, so the command returns after the adapter exits and no background cloud or TUI session remains. After a successful interactive adapter run, War Room asks whether to run `warroom pr create` from that same implementation checkout. If the selected issue is in an ally issue repo but triage notes name a mapped `Owner repo`, War Room keeps the source issue in the ally repo, creates a GitHub-linked branch in that owner repo with `createLinkedBranch`, stores the source issue on the branch metadata, and tells the adapter to implement only in the owner repo. The mapped checkout must be clean before launch. The command ends with an explicit `Outcome:` line, so it is clear whether the issue adapter completed, ran and failed, previewed, was blocked before handoff, or did not start. Add `--dry-run` to preview without creating the branch, launching, or moving status.
 
 If you already keep sibling checkouts next to War Room, such as `../sdk` or `../demo`, the CLI can detect those when the mapped `maps/repos/*` checkout is missing. `repos.yaml` remains the ownership map either way.
@@ -102,7 +126,7 @@ warroom campaign labels
 warroom issue create
 ```
 
-In an interactive terminal, `issue create` launches a PM-style Codex session that uses light `@grill-me` questioning to capture business scope, not technical implementation detail. The adapter writes a structured issue draft under `.warroom/runs/*`; War Room previews the repo, title, body, labels, and issue type, then asks before creating the GitHub issue. If the business context references a Sentry issue, event, short ID, or URL, the draft must preserve that reference and note that triage should link the created GitHub issue back to Sentry using the Sentry MCP. Confirmed creates add the issue to the Campaign Map as `needs-triage`, apply the `needs-triage` workflow label plus ally labels when the target is an ally issue repo, and best-effort set the GitHub issue type through GraphQL. After printing the issue URL and `Outcome:` line, War Room asks whether to start `warroom issue triage` for the new issue.
+In an interactive terminal, `issue create` launches a PM-style interactive LLM session that uses light `@grill-me` questioning to capture business scope, not technical implementation detail. The adapter writes a structured issue draft under `.warroom/runs/*`; War Room previews the repo, title, body, labels, and issue type, then asks before creating the GitHub issue. If the business context references a Sentry issue, event, short ID, or URL, the draft must preserve that reference and note that triage should link the created GitHub issue back to Sentry using the Sentry MCP. Confirmed creates add the issue to the Campaign Map as `needs-triage`, apply the `needs-triage` workflow label plus ally labels when the target is an ally issue repo, and best-effort set the GitHub issue type through GraphQL. After printing the issue URL and `Outcome:` line, War Room asks whether to start `warroom issue triage` for the new issue.
 
 3. Triage the existing issue.
 
@@ -111,7 +135,7 @@ warroom issue triage
 warroom issue triage --issue "$ISSUE" --launch --mark-ready --confirm-status --write-artifact
 ```
 
-In an interactive terminal, `issue triage` prints numbered `needs-triage` Campaign Map items and lets you choose one to launch the scoped triage handoff in the Codex TUI, so `@grill-me` questions can be answered directly. Triage handoffs are planning-only: they may do read-only investigation, ask questions, and post final triage notes back to the GitHub issue, but must not edit code, create branches, commit, or open PRs. If the issue references Sentry, the handoff instructs Codex to use the Sentry MCP to inspect safely and create or verify the GitHub-to-Sentry issue link, then include a `Sentry link:` status line in the triage notes. War Room starts Codex with workspace-write sandboxing plus outbound network access for read-only API checks. Add `--dry-run` to preview the selected handoff without launching. With `--issue`, it builds that handoff directly with repo specialist context and previews by default unless `--launch` is passed. Ally issue repos fall back to the matching `allies.yaml` checkout when they are not in `repos.yaml`. After an interactive selected triage session exits successfully, War Room checks for a new issue comment starting `## War Room triage notes` with `Ready for ready-to-engage: yes`; only then does it move the Campaign status to `ready-to-engage` and replace the workflow label. Direct `--issue --launch` handoffs still require `--mark-ready --confirm-status` for that closeout. The command ends with an explicit `Outcome:` line for completed, dry-run, blocked, or not-ready handoffs.
+In an interactive terminal, `issue triage` prints numbered `needs-triage` Campaign Map items and lets you choose one to launch the scoped triage handoff in the configured interactive adapter, so `@grill-me` questions can be answered directly. Triage handoffs are planning-only: they may do read-only investigation, ask questions, and post final triage notes back to the GitHub issue, but must not edit code, create branches, commit, or open PRs. If the issue references Sentry, the handoff instructs the adapter to use the Sentry MCP to inspect safely and create or verify the GitHub-to-Sentry issue link, then include a `Sentry link:` status line in the triage notes. For Codex triage, War Room defaults to workspace-write sandboxing plus outbound network access for read-only API checks. Add `--dry-run` to preview the selected handoff without launching. With `--issue`, it builds that handoff directly with repo specialist context and previews by default unless `--launch` is passed. Ally issue repos fall back to the matching `allies.yaml` checkout when they are not in `repos.yaml`. After an interactive selected triage session exits successfully, War Room checks for a new issue comment starting `## War Room triage notes` with `Ready for ready-to-engage: yes`; only then does it move the Campaign status to `ready-to-engage` and replace the workflow label. Direct `--issue --launch` handoffs still require `--mark-ready --confirm-status` for that closeout. The command ends with an explicit `Outcome:` line for completed, dry-run, blocked, or not-ready handoffs.
 
 4. Start implementation from the ready issue.
 
@@ -184,7 +208,7 @@ War Room records issue-attributed LLM adapter usage automatically. The canonical
 .warroom/runs/issues/<org>__<repo>__<issue>/usage-summary.md
 ```
 
-The ledger stores metadata, token counts, estimates, and cost fields only; it does not store prompts or model output. Every adapter prompt with an issue context starts with a task title like `[org/repo#666] issue-triage/interactive-triage`, and the same title is stored on the usage entry so Codex session history, local logs, and War Room cost records can be cross-checked. `codex exec` output is captured while still being shown in the terminal where possible, so War Room can parse adapter-reported token totals when present. Interactive Codex TUI sessions use the local terminal capture wrapper when a controlling terminal is available, so the final `Token usage:` footer can be parsed too. Otherwise War Room records prompt/output token estimates and marks the entry as estimated.
+The ledger stores metadata, token counts, estimates, and cost fields only; it does not store prompts or model output. Every adapter prompt with an issue context starts with a task title like `[org/repo#666] issue-triage/interactive-triage`, and the same title is stored on the usage entry so adapter session history, local logs, and War Room cost records can be cross-checked. `codex exec` output is captured while still being shown in the terminal where possible, so War Room can parse adapter-reported token totals when present. Interactive Codex TUI sessions use the local terminal capture wrapper when a controlling terminal is available, so the final `Token usage:` footer can be parsed too. Claude JSON output is parsed for reported tokens and cost when available. Otherwise War Room records prompt/output token estimates and marks the entry as estimated.
 
 Pricing is read from `config/llm-pricing.json`. Missing rates are reported as `Cost: unavailable` rather than treated as zero. Inspect current usage before merge with:
 

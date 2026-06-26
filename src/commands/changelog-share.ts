@@ -239,6 +239,7 @@ function generateContent(
     const launch = runAdapter(workspaceRoot, prompt, {
       captureStdout: true,
       outputLastMessagePath: outputPath,
+      action: 'changelog-share',
     });
     const adapterCommand = launch.invocation.display;
     if (!launch.launched) {
@@ -371,7 +372,7 @@ export function captureInteractiveEditNotes(
     'After writing the file, end the session.',
   ].join('\n');
 
-  const launch = runInteractiveAdapter(workspaceRoot, prompt, { cwd: workspaceRoot });
+  const launch = runInteractiveAdapter(workspaceRoot, prompt, { cwd: workspaceRoot, action: 'changelog-share' });
   if (!launch.launched) {
     return { notes: null, launched: false, adapterError: launch.error ?? 'Interactive adapter failed to launch.' };
   }

@@ -547,15 +547,18 @@ function runForegroundAdapterProcess(
   const stderrPath = path.join(outputDir, 'stderr.log');
   const command = [shellQuote(resolvedCommand), ...invocation.args.map(shellQuote)].join(' ');
   // Claude's stream-json mode (and the required --verbose flag) floods the terminal with
-  // event JSON on stdout and debug logs on stderr. Capture both to files and emit a single
-  // "#" per output line so the user can see liveness without the noise.
-  const useDotProgress = invocation.adapter === 'claude';
-  const dotAwk = `awk '{ printf "#" > "/dev/stderr"; fflush("/dev/stderr") }'`;
-  const stdoutSink = useDotProgress
-    ? `tee ${shellQuote(stdoutPath)} | ${dotAwk} > /dev/null; printf "\\n" >&2`
+  // event JSON on stdout and debug logs on stderr. Capture both to files and, instead of the
+  // noise, march a little green army toy soldier across the terminal — one animation tick per
+  // stdout line — so the user can see liveness. stderr is captured silently (surfaced on error).
+  const useSpriteProgress = invocation.adapter === 'claude';
+  // Green marching soldier: alternating legs (웃/유) advancing over a trail of footprints,
+  // redrawn in place with \r. Driven by stdout only so a single writer owns the line (no flicker).
+  const spriteAwk = `awk 'BEGIN{W=18} { p=NR%W; man=(NR%2)?"웃":"유"; s=""; for(i=0;i<p;i++) s=s"."; r=""; for(i=p+1;i<W;i++) r=r" "; printf "\\r\\033[1;32m%s%s%s\\033[0m", s, man, r > "/dev/stderr"; fflush("/dev/stderr") }'`;
+  const stdoutSink = useSpriteProgress
+    ? `tee ${shellQuote(stdoutPath)} | ${spriteAwk} > /dev/null; printf "\\r\\033[K\\n" >&2`
     : `tee ${shellQuote(stdoutPath)}`;
-  const stderrSink = useDotProgress
-    ? `tee ${shellQuote(stderrPath)} | ${dotAwk} > /dev/null`
+  const stderrSink = useSpriteProgress
+    ? `tee ${shellQuote(stderrPath)} > /dev/null`
     : `tee ${shellQuote(stderrPath)} >&2`;
   const script = [
     'set -o pipefail',
@@ -572,7 +575,7 @@ function runForegroundAdapterProcess(
     });
     const stdoutText = existsSync(stdoutPath) ? readFileSync(stdoutPath, 'utf8') : '';
     const stderrText = existsSync(stderrPath) ? readFileSync(stderrPath, 'utf8') : '';
-    if (useDotProgress && result.status !== 0 && stderrText) {
+    if (useSpriteProgress && result.status !== 0 && stderrText) {
       // Adapter failed: surface the captured stderr the user wasn't shown during the run.
       process.stderr.write(stderrText.endsWith('\n') ? stderrText : `${stderrText}\n`);
     }

@@ -523,30 +523,46 @@ export function resumeChangelogShare(workspaceRoot: string, draft: ChangelogDraf
   };
 }
 
-export function runChangelogShare(workspaceRoot: string, period: ChangelogPeriod): ChangelogShareResult {
+// The gathered-but-not-yet-generated half of a share run. Splitting this out
+// lets the interactive caller curate which entries to include before the LLM
+// content is generated from them.
+export type ChangelogShareLoad = {
+  period: ChangelogPeriod;
+  periodLabel: string;
+  entries: ChangelogEntry[];
+  cutoff: Date;
+  cutoffSource: 'last-sent' | 'period-default';
+  alliesWithComms: AllyCommsEntry[];
+  error: string | null;
+};
+
+// Gathers the candidate changelog entries for a period without running the LLM
+// adapter, so the caller can let the user toggle entries on/off first.
+export function loadChangelogShare(workspaceRoot: string, period: ChangelogPeriod): ChangelogShareLoad {
   const periodLabel = PERIOD_LABEL[period];
   const { cutoff, source: cutoffSource } = resolveCutoff(workspaceRoot, period);
   const entries = loadChangelogEntries(workspaceRoot, period, cutoff);
   const alliesWithComms = loadAlliesWithComms(workspaceRoot);
+  const cutoffLabel = cutoffSource === 'last-sent' ? `since the last send (${cutoff.toISOString()})` : `in the last ${PERIOD_DAYS[period]} day${PERIOD_DAYS[period] === 1 ? '' : 's'}`;
+  return {
+    period,
+    periodLabel,
+    entries,
+    cutoff,
+    cutoffSource,
+    alliesWithComms,
+    error: entries.length === 0 ? `No changelog entries found ${cutoffLabel}.` : null,
+  };
+}
 
-  if (entries.length === 0) {
-    const cutoffLabel = cutoffSource === 'last-sent' ? `since the last send (${cutoff.toISOString()})` : `in the last ${PERIOD_DAYS[period]} day${PERIOD_DAYS[period] === 1 ? '' : 's'}`;
-    return {
-      period,
-      periodLabel,
-      entries: [],
-      cutoff,
-      cutoffSource,
-      content: null,
-      blocks: null,
-      fallbackText: null,
-      alliesWithComms,
-      error: `No changelog entries found ${cutoffLabel}.`,
-      adapterError: null,
-      adapterCommand: null,
-    };
-  }
-
+// Generates the Slack message content and blocks from a (possibly curated)
+// subset of the loaded entries.
+export function generateChangelogShare(
+  workspaceRoot: string,
+  load: ChangelogShareLoad,
+  entries: ChangelogEntry[] = load.entries
+): ChangelogShareResult {
+  const { period, periodLabel, cutoff, cutoffSource, alliesWithComms } = load;
   const { content, adapterError, adapterCommand } = generateContent(workspaceRoot, entries, periodLabel);
   const blocks = content ? buildSlackBlocks(content, entries, periodLabel) : null;
   const fallbackText = content ? content.title : null;
@@ -565,4 +581,27 @@ export function runChangelogShare(workspaceRoot: string, period: ChangelogPeriod
     adapterError,
     adapterCommand,
   };
+}
+
+export function runChangelogShare(workspaceRoot: string, period: ChangelogPeriod): ChangelogShareResult {
+  const load = loadChangelogShare(workspaceRoot, period);
+
+  if (load.error || load.entries.length === 0) {
+    return {
+      period: load.period,
+      periodLabel: load.periodLabel,
+      entries: [],
+      cutoff: load.cutoff,
+      cutoffSource: load.cutoffSource,
+      content: null,
+      blocks: null,
+      fallbackText: null,
+      alliesWithComms: load.alliesWithComms,
+      error: load.error,
+      adapterError: null,
+      adapterCommand: null,
+    };
+  }
+
+  return generateChangelogShare(workspaceRoot, load);
 }

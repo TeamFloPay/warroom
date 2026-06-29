@@ -76,7 +76,8 @@ import {
   buildSlackBlocks,
   postToSlack,
   reviseChangelogContent,
-  runChangelogShare,
+  loadChangelogShare,
+  generateChangelogShare,
   loadChangelogDraft,
   saveChangelogDraft,
   clearChangelogDraft,
@@ -85,6 +86,7 @@ import {
   recordChangelogShareSent,
   PERIOD_LABEL,
   type ChangelogPeriod,
+  type ChangelogEntry,
   type ChangelogShareResult,
   type SlackPostResult,
 } from './commands/changelog-share.js';
@@ -93,7 +95,7 @@ import { CAMPAIGN_STATUSES, resetCampaignCache, type CampaignStatusName } from '
 import { readWorkspaceEnvVar } from './lib/env.js';
 import { formatLlmUsageSummary, refreshIssueUsageLedgerCosts, summarizeIssueUsage, type LlmUsageSummary } from './lib/llm-usage.js';
 import { pickCommandPath } from './lib/interactive-menu.js';
-import { selectChoice } from './lib/prompt.js';
+import { selectChoice, multiSelectChoices } from './lib/prompt.js';
 import { loadRepoManifest, readCampaignProjectNumber, runGit } from './lib/repos.js';
 import { findWarRoomRoot, findWarRoomWorkspace } from './lib/workspace.js';
 
@@ -3186,7 +3188,8 @@ export function buildProgram(options: BuildProgramOptions = {}) {
     .command('share')
     .description('Generate and distribute changelog updates to ally Slack channels.')
     .option('--period <period>', 'Reporting period: day, week, month, or lastSent. Prompted interactively if omitted.')
-    .action(async (opts: { period?: string }) => {
+    .option('--all', 'Include every entry without prompting to curate the list (interactive default lets you toggle entries).')
+    .action(async (opts: { period?: string; all?: boolean }) => {
       const validPeriods: ChangelogPeriod[] = ['day', 'week', 'month', 'lastSent'];
 
       let result: ChangelogShareResult | null = null;
@@ -3237,13 +3240,48 @@ export function buildProgram(options: BuildProgramOptions = {}) {
         }
 
         output(`Loading ${PERIOD_LABEL[period].toLowerCase()} changelog entries...`);
-        result = runChangelogShare(workspaceRoot, period);
-        const cutoffLabel = result.cutoffSource === 'last-sent'
-          ? `Cutoff: since last send at ${result.cutoff.toISOString()}.`
+        const load = loadChangelogShare(workspaceRoot, period);
+        const cutoffLabel = load.cutoffSource === 'last-sent'
+          ? `Cutoff: since last send at ${load.cutoff.toISOString()}.`
           : period === 'lastSent'
-            ? `Cutoff: no prior send recorded — sharing the most recent changes starting ${result.cutoff.toISOString()}.`
-            : `Cutoff: rolling ${PERIOD_LABEL[period].toLowerCase().replace(' update', '')} window starting ${result.cutoff.toISOString()} (no prior send recorded).`;
+            ? `Cutoff: no prior send recorded — sharing the most recent changes starting ${load.cutoff.toISOString()}.`
+            : `Cutoff: rolling ${PERIOD_LABEL[period].toLowerCase().replace(' update', '')} window starting ${load.cutoff.toISOString()} (no prior send recorded).`;
         output(cutoffLabel);
+
+        if (load.error) {
+          printOutcome(output, `Outcome: ${load.error}`);
+          return;
+        }
+
+        // Let the user curate which entries ship before the message copy is
+        // generated, so the LLM summary only describes the kept entries.
+        let selectedEntries = load.entries;
+        if (interactive && !opts.all) {
+          const picked = await multiSelectChoices<ChangelogEntry>({
+            input,
+            message: 'Select changelog entries to include (space toggles, a = all/none, enter confirms):',
+            choices: load.entries.map((entry) => ({
+              label: `${entry.repoName}: ${entry.title} (${entry.publishedAt.toDateString()})`,
+              value: entry,
+              checked: true,
+            })),
+          });
+          if (picked === null) {
+            printOutcome(output, 'Outcome: changelog share cancelled at entry selection. No draft saved.');
+            return;
+          }
+          if (picked.length === 0) {
+            printOutcome(output, 'Outcome: no entries selected — nothing to share.');
+            return;
+          }
+          selectedEntries = picked;
+          if (picked.length < load.entries.length) {
+            output(`Curated to ${picked.length} of ${load.entries.length} entr${load.entries.length === 1 ? 'y' : 'ies'}.`);
+          }
+        }
+
+        output('Generating message copy...');
+        result = generateChangelogShare(workspaceRoot, load, selectedEntries);
       }
 
       if (result.error) {
